@@ -25,9 +25,9 @@
 // ----------------------------------------------------------------------------
 // KDE Includes
 
+#include <KLocalizedString>
 #include <KMessageBox>
 #include <KRecentDirs>
-#include <KLocalizedString>
 
 // ----------------------------------------------------------------------------
 // Project Includes
@@ -53,11 +53,11 @@ using namespace reports;
 using namespace eMyMoney;
 using namespace Icons;
 
-#define VIEW_LEDGER         "ledger"
-#define VIEW_SCHEDULE       "schedule"
-#define VIEW_WELCOME        "welcome"
-#define VIEW_HOME           "home"
-#define VIEW_REPORTS        "reports"
+#define VIEW_LEDGER "ledger"
+#define VIEW_SCHEDULE "schedule"
+#define VIEW_WELCOME "welcome"
+#define VIEW_HOME "home"
+#define VIEW_REPORTS "reports"
 
 /**
  * Creates a unique file name in a specific directory
@@ -83,11 +83,11 @@ static QString createSaveFileName(const QString& rootDir, const QString& reportN
 }
 
 /**
-  * KReportsView Implementation
-  */
+ * KReportsView Implementation
+ */
 
-KReportsView::KReportsView(QWidget *parent) :
-    KMyMoneyViewBase(*new KReportsViewPrivate(this), parent)
+KReportsView::KReportsView(QWidget* parent)
+    : KMyMoneyViewBase(*new KReportsViewPrivate(this), parent)
 {
     connect(pActions[eMenu::Action::ReportNew], &QAction::triggered, this, &KReportsView::slotDuplicate);
     connect(pActions[eMenu::Action::ReportCopy], &QAction::triggered, this, &KReportsView::slotCopyView);
@@ -169,7 +169,7 @@ void KReportsView::refresh()
     qobject_cast<QSortFilterProxyModel*>(d->ui.m_tocTreeViewCustom->model())->invalidate();
 }
 
-void KReportsView::showEvent(QShowEvent * event)
+void KReportsView::showEvent(QShowEvent* event)
 {
     Q_D(KReportsView);
     if (d->m_needLoad) {
@@ -295,7 +295,7 @@ void KReportsView::updateActions(const SelectedObjects& selections)
     }
 }
 
-void KReportsView::slotOpenUrl(const QUrl &url)
+void KReportsView::slotOpenUrl(const QUrl& url)
 {
     QString view = url.fileName();
     if (view.isEmpty())
@@ -305,7 +305,6 @@ void KReportsView::slotOpenUrl(const QUrl &url)
     QString tid = QUrlQuery(url).queryItemValue("tid");
 
     if (view == VIEW_REPORTS) {
-
         if (command.isEmpty()) {
             // slotRefreshView();
         } else if (command == QLatin1String("print"))
@@ -399,7 +398,7 @@ void KReportsView::slotExportView()
 
             try {
                 tab->saveAs(newName, selectedMimeType);
-            } catch (const MyMoneyException &e) {
+            } catch (const MyMoneyException& e) {
                 KMessageBox::error(this, i18n("Failed to save: %1", QString::fromLatin1(e.what())));
             }
         }
@@ -522,7 +521,7 @@ void KReportsView::slotDuplicate()
             d->addReportTab(newReport, OpenImmediately);
             d->ui.m_tocTreeViewDefault->clearSelection();
             d->selectReportInViewById(d->ui.m_tocTreeViewCustom, newReport.id());
-        } catch (const MyMoneyException &e) {
+        } catch (const MyMoneyException& e) {
             QString error = i18n("Cannot add report, reason: \"%1\"", e.what());
 
             // write to messagehandler
@@ -545,7 +544,7 @@ void KReportsView::slotDelete()
     }
 
     MyMoneyReport report = tab->report();
-    if (! report.id().isEmpty()) {
+    if (!report.id().isEmpty()) {
         if (KMessageBox::Continue == d->deleteReportDialog(report.name())) {
             // close the tab and then remove the report so that it is not
             // generated again during the following loadView() call
@@ -557,12 +556,10 @@ void KReportsView::slotDelete()
         }
     } else {
         KMessageBox::information(this,
-                                 QString("<qt>") +
-                                 i18n("<b>%1</b> is a default report, so it cannot be deleted.",
-                                      report.name()) + QString("</qt>"), i18n("Delete Report?"));
+                                 QString("<qt>") + i18n("<b>%1</b> is a default report, so it cannot be deleted.", report.name()) + QString("</qt>"),
+                                 i18n("Delete Report?"));
     }
 }
-
 
 void KReportsView::slotOpenReport(const QString& id)
 {
@@ -717,7 +714,7 @@ void KReportsView::slotClose(int index)
 void KReportsView::slotCloseAll()
 {
     Q_D(const KReportsView);
-    if(!d->m_needLoad) {
+    if (!d->m_needLoad) {
         while (true) {
             if (auto tab = dynamic_cast<KReportTab*>(d->ui.m_reportTabWidget->widget(1))) {
                 d->ui.m_reportTabWidget->removeTab(1);
