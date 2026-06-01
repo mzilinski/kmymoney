@@ -68,6 +68,8 @@ private Q_SLOTS:
     void testBaseCurrency();
     void testOpeningBalanceNoBase();
     void testOpeningBalance();
+    void testImbalanceNoBase();
+    void testImbalance();
     void testAddPrice();
     void testRemovePrice();
     void testGetPrice();

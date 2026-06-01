@@ -1889,6 +1889,82 @@ void MyMoneyFileTest::testOpeningBalance()
     }
 }
 
+void MyMoneyFileTest::testImbalanceNoBase()
+{
+    MyMoneyAccount imbalanceAcc;
+    MyMoneySecurity base;
+
+    try {
+        base = m->baseCurrency();
+        imbalanceAcc = m->imbalanceAccount(base);
+        QFAIL("Missing expected exception");
+    } catch (const MyMoneyException&) {
+    }
+}
+
+void MyMoneyFileTest::testImbalance()
+{
+    MyMoneyAccount imbalanceAcc;
+    MyMoneySecurity second("USD", "US Dollar", "$");
+    setupBaseCurrency();
+
+    // a const lookup must throw as long as no imbalance account exists yet
+    try {
+        static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+        QFAIL("Missing expected exception");
+    } catch (const MyMoneyException&) {
+    }
+
+    // the non-const variant creates it lazily below the equity account
+    try {
+        imbalanceAcc = m->imbalanceAccount(m->baseCurrency());
+        QCOMPARE(imbalanceAcc.parentAccountId(), m->equity().id());
+        QCOMPARE(imbalanceAcc.name(), MyMoneyFile::imbalancePrefix());
+        QVERIFY(imbalanceAcc.accountType() == eMyMoney::Account::Type::Equity);
+        QCOMPARE(imbalanceAcc.value(QStringLiteral("ImbalanceAccount")), QStringLiteral("Yes"));
+        QCOMPARE(imbalanceAcc.openingDate(), QDate::currentDate());
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // calling it again returns the same account, not a new one
+    try {
+        QCOMPARE(m->imbalanceAccount(m->baseCurrency()).id(), imbalanceAcc.id());
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // the imbalance account must be distinct from the opening balances account
+    try {
+        const auto openingAcc = m->openingBalanceAccount(m->baseCurrency());
+        QVERIFY(openingAcc.id() != imbalanceAcc.id());
+        // creating the opening balance account must not have changed the
+        // imbalance account lookup
+        QCOMPARE(m->imbalanceAccount(m->baseCurrency()).id(), imbalanceAcc.id());
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // a second currency gets its own imbalance account with a " (XXX)" suffix
+    MyMoneyFileTransaction ft;
+    try {
+        m->addCurrency(second);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const QString refName = QString("%1 (%2)").arg(MyMoneyFile::imbalancePrefix(), QLatin1String("USD"));
+    try {
+        const auto secondAcc = m->imbalanceAccount(second);
+        QCOMPARE(secondAcc.parentAccountId(), m->equity().id());
+        QCOMPARE(secondAcc.name(), refName);
+        QVERIFY(secondAcc.id() != imbalanceAcc.id());
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+}
+
 void MyMoneyFileTest::testModifyStdAccount()
 {
     QVERIFY(m->asset().currencyId().isEmpty());

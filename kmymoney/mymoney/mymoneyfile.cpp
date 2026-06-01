@@ -2250,7 +2250,8 @@ MyMoneyAccount MyMoneyFile::openingBalanceAccount_internal(const MyMoneySecurity
     // of the application has been changed)
     if (acc.id().isEmpty()) {
         for (it = accounts.cbegin(); it != accounts.cend(); ++it) {
-            if ((it->accountType() == eMyMoney::Account::Type::Equity) && (it->currencyId() == security.id())) {
+            if ((it->accountType() == eMyMoney::Account::Type::Equity) && (it->currencyId() == security.id())
+                && (it->value("ImbalanceAccount") != QLatin1String("Yes"))) {
                 acc = *it;
                 break;
             }
@@ -2298,6 +2299,92 @@ MyMoneyAccount MyMoneyFile::createOpeningBalanceAccount(const MyMoneySecurity& s
     acc.setValue("OpeningBalanceAccount", "Yes");
 
     MyMoneyAccount parent = !parentAccountId.isEmpty() ? account(parentAccountId) : equity();
+    this->addAccount(acc, parent);
+    return acc;
+}
+
+MyMoneyAccount MyMoneyFile::imbalanceAccount(const MyMoneySecurity& security)
+{
+    if (!security.isCurrency())
+        throw MYMONEYEXCEPTION_CSTRING("Imbalance account for non currencies not supported");
+
+    try {
+        return imbalanceAccount_internal(security);
+    } catch (const MyMoneyException&) {
+        MyMoneyFileTransaction ft;
+        MyMoneyAccount acc;
+
+        try {
+            acc = createImbalanceAccount(security);
+            ft.commit();
+
+        } catch (const MyMoneyException&) {
+            qDebug("Unable to create imbalance account for security %s", qPrintable(security.id()));
+        }
+        return acc;
+    }
+}
+
+MyMoneyAccount MyMoneyFile::imbalanceAccount(const MyMoneySecurity& security) const
+{
+    return imbalanceAccount_internal(security);
+}
+
+MyMoneyAccount MyMoneyFile::imbalanceAccount_internal(const MyMoneySecurity& security) const
+{
+    if (!security.isCurrency())
+        throw MYMONEYEXCEPTION_CSTRING("Imbalance account for non currencies not supported");
+
+    MyMoneyAccount acc;
+    QList<MyMoneyAccount> accounts;
+    QList<MyMoneyAccount>::const_iterator it;
+
+    accountList(accounts, equity().accountList(), true);
+
+    // An account explicitly marked as the imbalance account for this currency
+    // is used if present.
+    for (it = accounts.cbegin(); it != accounts.cend(); ++it) {
+        if ((it->value("ImbalanceAccount") == QLatin1String("Yes")) && (it->currencyId() == security.id())) {
+            acc = *it;
+            break;
+        }
+    }
+
+    // Otherwise look for one whose name starts with the imbalance prefix.
+    // Note: we deliberately do not fall back to "any equity account with this
+    // currency" (as openingBalanceAccount_internal does), because that would
+    // risk matching the opening balances account.
+    if (acc.id().isEmpty()) {
+        for (it = accounts.cbegin(); it != accounts.cend(); ++it) {
+            if (it->name().startsWith(MyMoneyFile::imbalancePrefix()) && (it->currencyId() == security.id())) {
+                acc = *it;
+                break;
+            }
+        }
+    }
+
+    if (acc.id().isEmpty())
+        throw MYMONEYEXCEPTION(QString::fromLatin1("No imbalance account for %1").arg(security.tradingSymbol()));
+
+    return acc;
+}
+
+MyMoneyAccount MyMoneyFile::createImbalanceAccount(const MyMoneySecurity& security)
+{
+    d->checkTransaction(Q_FUNC_INFO);
+
+    MyMoneyAccount acc;
+
+    QString name = MyMoneyFile::imbalancePrefix();
+    if (security.id() != baseCurrency().id()) {
+        name += QString(" (%1)").arg(security.id());
+    }
+    acc.setName(name);
+    acc.setAccountType(Account::Type::Equity);
+    acc.setCurrencyId(security.id());
+    acc.setValue("ImbalanceAccount", "Yes");
+
+    MyMoneyAccount parent = equity();
     this->addAccount(acc, parent);
     return acc;
 }
@@ -4940,6 +5027,11 @@ QUuid MyMoneyFile::storageId()
 QString MyMoneyFile::openingBalancesPrefix()
 {
     return i18n("Opening Balances");
+}
+
+QString MyMoneyFile::imbalancePrefix()
+{
+    return i18n("Imbalance");
 }
 
 bool MyMoneyFile::hasMatchingOnlineBalance(const MyMoneyAccount& _acc) const

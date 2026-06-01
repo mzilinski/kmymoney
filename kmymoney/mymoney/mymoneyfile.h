@@ -391,6 +391,39 @@ public:
     MyMoneyAccount openingBalanceAccount(const MyMoneySecurity& security) const;
 
     /**
+     * This method returns the account information for the imbalance
+     * (Ausgleichskonto) account for the given @p security. If the respective
+     * account does not exist, it will be created. The name is constructed
+     * using MyMoneyFile::imbalancePrefix() and appending " (xxx)" in case the
+     * @p security is not the baseCurrency(). The account created will be a
+     * sub-account of the standard equity account provided by equity().
+     *
+     * The imbalance account is used by the optional simplified mode to absorb
+     * the residual of transactions that have not been fully categorized (see
+     * balanceTransactionToImbalance()).
+     *
+     * @param security Security for which the account is searched
+     *
+     * @return The imbalance account
+     *
+     * @note No notifications will be sent!
+     */
+    MyMoneyAccount imbalanceAccount(const MyMoneySecurity& security);
+
+    /**
+     * This method is essentially the same as the above, except it works on
+     * const objects. If there is no imbalance account, this method WILL NOT
+     * create one. Instead it will throw an exception.
+     *
+     * @param security Security for which the account is searched
+     *
+     * @return The imbalance account
+     *
+     * @note No notifications will be sent!
+     */
+    MyMoneyAccount imbalanceAccount(const MyMoneySecurity& security) const;
+
+    /**
       * Create an opening balance transaction for the account @p acc
       * with a value of @p balance. If the corresponding opening balance account
       * for the account's currency does not exist it will be created. If it exists
@@ -1243,6 +1276,13 @@ public:
     static QString openingBalancesPrefix();
 
     /**
+     * MyMoneyFile::imbalancePrefix() is a special string used to generate the
+     * name for the imbalance (Ausgleichskonto) account. See imbalanceAccount()
+     * for details.
+     */
+    static QString imbalancePrefix();
+
+    /**
       * MyMoneyFile::AccountSeparator is used as the separator
       * between account names to form a hierarchy.
       */
@@ -1930,6 +1970,19 @@ private:
     MyMoneyAccount createOpeningBalanceAccount(const MyMoneySecurity& security);
 
     MyMoneyAccount openingBalanceAccount_internal(const MyMoneySecurity& security) const;
+
+    /**
+     * This method creates the imbalance (Ausgleichskonto) account for the
+     * given @p security. The name is constructed using
+     * MyMoneyFile::imbalancePrefix() and appending " (xxx)" in case the
+     * @p security is not the baseCurrency(). The account created will be a
+     * sub-account of the standard equity account provided by equity().
+     *
+     * @param security Security for which the account is created
+     */
+    MyMoneyAccount createImbalanceAccount(const MyMoneySecurity& security);
+
+    MyMoneyAccount imbalanceAccount_internal(const MyMoneySecurity& security) const;
 
     /**
      * Make sure that the splits value has the precision of the corresponding account
