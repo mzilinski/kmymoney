@@ -1985,6 +1985,14 @@ private:
     MyMoneyAccount imbalanceAccount_internal(const MyMoneySecurity& security) const;
 
     /**
+     * Balances @p transaction against the imbalance account if its splits do
+     * not sum to zero. Any previously added imbalance split is removed first,
+     * so calling this repeatedly is idempotent. Must be called from within a
+     * MyMoneyFileTransaction. Used by the optional simplified mode.
+     */
+    void balanceTransactionToImbalance(MyMoneyTransaction& transaction);
+
+    /**
      * Make sure that the splits value has the precision of the corresponding account
      */
     void fixSplitPrecision(MyMoneyTransaction& t) const;

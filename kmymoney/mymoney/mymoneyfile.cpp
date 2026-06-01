@@ -1521,6 +1521,12 @@ void MyMoneyFile::modifyTransaction(const MyMoneyTransaction& transaction)
     for (const auto& split : splits2)
         d->addCacheNotification(split.accountId(), tr.postDate());
 
+    // in simplified mode, re-balance an under-specified transaction against the
+    // imbalance account (idempotent: a previous imbalance split is replaced)
+    if (d->m_autoBalanceMode) {
+        balanceTransactionToImbalance(tCopy);
+    }
+
     // make sure the value is rounded to the accounts precision
     fixSplitPrecision(tCopy);
 
@@ -2389,6 +2395,53 @@ MyMoneyAccount MyMoneyFile::createImbalanceAccount(const MyMoneySecurity& securi
     return acc;
 }
 
+void MyMoneyFile::balanceTransactionToImbalance(MyMoneyTransaction& transaction)
+{
+    // This helper assumes the caller already runs inside a MyMoneyFileTransaction
+    // (as addTransaction()/modifyTransaction() do); it therefore does not open a
+    // nested transaction when it has to create the imbalance account.
+
+    // Remove any imbalance split we may have added earlier so that re-balancing
+    // (e.g. when a transaction is modified) is idempotent.
+    const auto existingSplits = transaction.splits();
+    for (const auto& split : existingSplits) {
+        if (split.accountId().isEmpty())
+            continue;
+        const auto acc = account(split.accountId());
+        if (acc.value("ImbalanceAccount") == QLatin1String("Yes")) {
+            transaction.removeSplit(split);
+        }
+    }
+
+    const MyMoneyMoney residual = transaction.splitSum();
+    if (residual.isZero())
+        return;
+
+    // We only balance transactions denominated in a currency. Inventing an
+    // amount for a non-currency commodity (e.g. a security) would falsify data.
+    const MyMoneySecurity sec = security(transaction.commodity());
+    if (!sec.isCurrency())
+        return;
+
+    MyMoneyAccount imbAcc;
+    try {
+        imbAcc = imbalanceAccount_internal(sec);
+    } catch (const MyMoneyException&) {
+        imbAcc = createImbalanceAccount(sec);
+    }
+    if (imbAcc.id().isEmpty())
+        return;
+
+    // The imbalance account is denominated in the transaction commodity, so
+    // value and shares are identical and no exchange rate is involved.
+    MyMoneySplit s;
+    s.setAccountId(imbAcc.id());
+    s.setValue(-residual);
+    s.setShares(-residual);
+    s.setMemo(i18n("Automatically balanced (simplified mode)"));
+    transaction.addSplit(s);
+}
+
 void MyMoneyFile::addTransaction(MyMoneyTransaction& transaction)
 {
     d->checkTransaction(Q_FUNC_INFO);
@@ -2452,6 +2505,12 @@ void MyMoneyFile::addTransaction(MyMoneyTransaction& transaction)
     // check that we have a commodity
     if (transaction.commodity().isEmpty()) {
         transaction.setCommodity(baseCurrency().id());
+    }
+
+    // in simplified mode, balance an under-specified transaction against the
+    // imbalance account before its splits are finalized
+    if (d->m_autoBalanceMode) {
+        balanceTransactionToImbalance(transaction);
     }
 
     // make sure the value is rounded to the accounts precision

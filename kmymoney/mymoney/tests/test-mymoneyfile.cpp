@@ -1965,6 +1965,79 @@ void MyMoneyFileTest::testImbalance()
     }
 }
 
+void MyMoneyFileTest::testAutoBalanceTransaction()
+{
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // with auto-balance enabled, a single-split transaction is balanced
+    // against the imbalance account when added
+    m->setAutoBalanceMode(true);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    t.setMemo(QStringLiteral("single split"));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setShares(MyMoneyMoney(-1000, 100));
+    split1.setValue(MyMoneyMoney(-1000, 100));
+    t.addSplit(split1);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // the stored transaction now has two splits and is balanced
+    const auto stored = m->transaction(t.id());
+    QCOMPARE(stored.splitCount(), static_cast<uint>(2));
+    QVERIFY(stored.splitSum().isZero());
+
+    // the original split is unchanged ...
+    const auto s1 = stored.splitByAccount(QStringLiteral("A000001"));
+    QCOMPARE(s1.value(), MyMoneyMoney(-1000, 100));
+
+    // ... and the counter split lands in the imbalance account
+    const auto imbAcc = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+    const auto s2 = stored.splitByAccount(imbAcc.id());
+    QCOMPARE(s2.value(), MyMoneyMoney(1000, 100));
+
+    m->setAutoBalanceMode(false);
+}
+
+void MyMoneyFileTest::testNoAutoBalanceWhenDisabled()
+{
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // with auto-balance disabled (the default), a single-split transaction is
+    // stored as-is and is not balanced
+    m->setAutoBalanceMode(false);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setShares(MyMoneyMoney(-500, 100));
+    split1.setValue(MyMoneyMoney(-500, 100));
+    t.addSplit(split1);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto stored = m->transaction(t.id());
+    QCOMPARE(stored.splitCount(), static_cast<uint>(1));
+    QVERIFY(!stored.splitSum().isZero());
+}
+
 void MyMoneyFileTest::testModifyStdAccount()
 {
     QVERIFY(m->asset().currencyId().isEmpty());
