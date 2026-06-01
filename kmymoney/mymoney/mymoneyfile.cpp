@@ -163,6 +163,7 @@ public:
         , m_dirty(false)
         , m_inTransaction(false)
         , m_journalBlocking(false)
+        , m_simpleMode(false)
         , m_autoBalanceMode(false)
         //                                                      +-#1--+ +#2++-#3-++-#4--+
         , m_numericalCheckNumberExp(QRegularExpression(QString("(.*\\D)?(0*)(\\d+)(\\D.*)?")))
@@ -1005,6 +1006,7 @@ public:
     bool m_dirty;
     bool m_inTransaction;
     bool m_journalBlocking;
+    bool m_simpleMode;
     bool m_autoBalanceMode;
     MyMoneySecurity m_baseCurrency;
 
@@ -2818,6 +2820,16 @@ bool MyMoneyFile::autoBalanceMode() const
     return d->m_autoBalanceMode;
 }
 
+void MyMoneyFile::setSimpleMode(bool enable)
+{
+    d->m_simpleMode = enable;
+}
+
+bool MyMoneyFile::simpleMode() const
+{
+    return d->m_simpleMode;
+}
+
 #if 0
 unsigned int MyMoneyFile::accountCount() const
 {
@@ -3525,6 +3537,19 @@ QStringList MyMoneyFile::consistencyCheck()
 
         auto checkSplitSum = [&]() {
             if (!t.splitSum().isZero()) {
+                // In simplified mode with auto-balancing, repair the transaction
+                // by routing its residual to the imbalance account instead of
+                // reporting it as a problem. This also fixes legacy single-split
+                // transactions that were imported without a category.
+                if (d->m_autoBalanceMode) {
+                    balanceTransactionToImbalance(t);
+                    rc << i18n("  * Transaction '%1' posted on %2 was automatically balanced via the imbalance account.",
+                               t.id(),
+                               MyMoneyUtils::formatDate(t.postDate()));
+                    ++problemCount;
+                    tChanged = true;
+                    return;
+                }
                 rc << i18n("  * Sum of splits in transaction '%1' posted on %2 is not zero.", t.id(), MyMoneyUtils::formatDate(t.postDate()));
                 for (const auto& split : t.splits()) {
                     const auto accIdx = d->accountsModel.indexById(split.accountId());
@@ -3533,7 +3558,11 @@ QStringList MyMoneyFile::consistencyCheck()
                     const auto security = MyMoneyFile::instance()->security(acc.currencyId());
                     rc << i18n("    Account: %1, Amount: %2", name, MyMoneyUtils::formatMoney(split.shares(), security));
                 }
-                ++unfixedCount;
+                // In simplified mode (without auto-balancing) a not-balanced
+                // transaction is expected and reported as information only.
+                if (!d->m_simpleMode) {
+                    ++unfixedCount;
+                }
             }
         };
 

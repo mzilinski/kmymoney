@@ -485,6 +485,21 @@ public:
     bool autoBalanceMode() const;
 
     /**
+     * Enables or disables the engine's awareness of the user's "simplified
+     * mode". This is independent of auto-balancing: when simplified mode is on
+     * but auto-balancing is off, the consistency check reports not-balanced
+     * transactions as information instead of unfixed problems.
+     *
+     * @param enable true if simplified mode is active
+     */
+    void setSimpleMode(bool enable);
+
+    /**
+     * @return true if the engine has been told that simplified mode is active.
+     */
+    bool simpleMode() const;
+
+    /**
       * Adds an institution to the file-global institution pool. A
       * respective institution-ID will be generated for this object.
       * The ID is stored as QString in the object passed as argument.

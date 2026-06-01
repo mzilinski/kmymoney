@@ -3545,8 +3545,9 @@ void KMyMoneyApp::slotUpdateConfiguration(const QString &dialogName)
     MyMoneyFile::instance()->budgetsModel()->setFiscalYearStart(KMyMoneySettings::firstFiscalMonth(), KMyMoneySettings::firstFiscalDay());
     MyMoneyReport::setLineWidth(KMyMoneySettings::lineWidth());
 
-    // Propagate the simplified-mode auto-balance preference into the engine.
+    // Propagate the simplified-mode preferences into the engine.
     // The engine deliberately does not depend on the GUI settings classes.
+    MyMoneyFile::instance()->setSimpleMode(KMyMoneySettings::simpleMode());
     MyMoneyFile::instance()->setAutoBalanceMode(KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeAutoBalance());
 
     const auto showHeaders = KMyMoneySettings::showFancyMarker();

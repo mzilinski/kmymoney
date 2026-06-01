@@ -2038,6 +2038,57 @@ void MyMoneyFileTest::testNoAutoBalanceWhenDisabled()
     QVERIFY(!stored.splitSum().isZero());
 }
 
+void MyMoneyFileTest::testConsistencyCheckAutoBalance()
+{
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // create a legacy single-split (not balanced) transaction while auto-balance
+    // is off, mimicking an imported uncategorized transaction
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setShares(MyMoneyMoney(-2500, 100));
+    split1.setValue(MyMoneyMoney(-2500, 100));
+    t.addSplit(split1);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+    QCOMPARE(m->transaction(tid).splitCount(), static_cast<uint>(1));
+
+    // enable simplified mode + auto-balance and run the consistency check;
+    // it must repair the legacy transaction instead of reporting it
+    m->setSimpleMode(true);
+    m->setAutoBalanceMode(true);
+
+    ft.restart();
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto fixed = m->transaction(tid);
+    QCOMPARE(fixed.splitCount(), static_cast<uint>(2));
+    QVERIFY(fixed.splitSum().isZero());
+    const auto imbAcc = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+    QCOMPARE(fixed.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(2500, 100));
+
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+}
+
 void MyMoneyFileTest::testModifyStdAccount()
 {
     QVERIFY(m->asset().currencyId().isEmpty());

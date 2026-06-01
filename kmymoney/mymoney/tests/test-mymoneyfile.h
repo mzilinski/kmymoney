@@ -72,6 +72,7 @@ private Q_SLOTS:
     void testImbalance();
     void testAutoBalanceTransaction();
     void testNoAutoBalanceWhenDisabled();
+    void testConsistencyCheckAutoBalance();
     void testAddPrice();
     void testRemovePrice();
     void testGetPrice();
