@@ -74,6 +74,27 @@ KSettingsGeneral::KSettingsGeneral(QWidget* parent) :
             d->ui->kcfg_BackupExtension->setText(QLatin1String("~"));
         }
     });
+
+    // Simplified mode: enable its sub-options only when simplified mode is active,
+    // and keep it mutually exclusive with the expert (accountant) mode.
+    connect(d->ui->kcfg_SimpleMode, &QCheckBox::toggled, this, &KSettingsGeneral::slotSimpleModeToggled);
+    connect(d->ui->kcfg_ExpertMode, &QCheckBox::toggled, this, [&](bool checked) {
+        Q_D(KSettingsGeneral);
+        if (checked && d->ui->kcfg_SimpleMode->isChecked()) {
+            d->ui->kcfg_SimpleMode->setChecked(false);
+        }
+    });
+    slotSimpleModeToggled(d->ui->kcfg_SimpleMode->isChecked());
+}
+
+void KSettingsGeneral::slotSimpleModeToggled(bool checked)
+{
+    Q_D(KSettingsGeneral);
+    d->ui->kcfg_SimpleModeAutoBalance->setEnabled(checked);
+    d->ui->kcfg_SimpleModeDeriveOpeningDate->setEnabled(checked);
+    if (checked && d->ui->kcfg_ExpertMode->isChecked()) {
+        d->ui->kcfg_ExpertMode->setChecked(false);
+    }
 }
 
 KSettingsGeneral::~KSettingsGeneral()
@@ -115,4 +136,6 @@ void KSettingsGeneral::showEvent(QShowEvent *event)
     Q_UNUSED(event)
     QWidget::showEvent(event);
     slotUpdateLogTypes();
+    Q_D(KSettingsGeneral);
+    slotSimpleModeToggled(d->ui->kcfg_SimpleMode->isChecked());
 }

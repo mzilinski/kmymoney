@@ -434,6 +434,24 @@ public:
     void setDirty(bool dirty = true) const;
 
     /**
+     * Enables or disables the engine-side "simplified mode" auto-balancing.
+     * When enabled, a transaction whose splits do not sum to zero is
+     * automatically balanced against a dedicated imbalance (equity) account
+     * when it is added or modified (see balanceTransactionToImbalance()).
+     *
+     * The engine intentionally does not depend on the GUI settings classes;
+     * the application sets this flag from the corresponding user settings.
+     *
+     * @param enable true to enable auto-balancing, false to disable (default)
+     */
+    void setAutoBalanceMode(bool enable);
+
+    /**
+     * @return true if engine-side auto-balancing (simplified mode) is enabled.
+     */
+    bool autoBalanceMode() const;
+
+    /**
       * Adds an institution to the file-global institution pool. A
       * respective institution-ID will be generated for this object.
       * The ID is stored as QString in the object passed as argument.

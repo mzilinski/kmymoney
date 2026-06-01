@@ -34,6 +34,7 @@ public Q_SLOTS:
 protected Q_SLOTS:
     void slotChooseLogPath();
     void slotUpdateLogTypes();
+    void slotSimpleModeToggled(bool checked);
 
 protected:
     void showEvent(QShowEvent* event) override;

@@ -163,6 +163,7 @@ public:
         , m_dirty(false)
         , m_inTransaction(false)
         , m_journalBlocking(false)
+        , m_autoBalanceMode(false)
         //                                                      +-#1--+ +#2++-#3-++-#4--+
         , m_numericalCheckNumberExp(QRegularExpression(QString("(.*\\D)?(0*)(\\d+)(\\D.*)?")))
         , payeesModel(qq, &undoStack)
@@ -1004,6 +1005,7 @@ public:
     bool m_dirty;
     bool m_inTransaction;
     bool m_journalBlocking;
+    bool m_autoBalanceMode;
     MyMoneySecurity m_baseCurrency;
 
     QRegularExpression m_numericalCheckNumberExp;
@@ -2658,6 +2660,16 @@ void MyMoneyFile::setDirty(bool dirty) const
         d->markModelsAsClean();
     }
     d->m_dirty = dirty;
+}
+
+void MyMoneyFile::setAutoBalanceMode(bool enable)
+{
+    d->m_autoBalanceMode = enable;
+}
+
+bool MyMoneyFile::autoBalanceMode() const
+{
+    return d->m_autoBalanceMode;
 }
 
 #if 0

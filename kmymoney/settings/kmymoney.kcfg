@@ -130,6 +130,21 @@
    <label>Run in expert (accountant) mode</label>
    <default>false</default>
   </entry>
+  <entry name="SimpleMode" type="Bool">
+   <label>Run in simplified mode without double-entry bookkeeping</label>
+   <whatsthis>When enabled, transactions may be entered without a counter category. Uncategorized amounts are automatically balanced against a dedicated equity account, and the consistency check no longer reports such transactions as errors.</whatsthis>
+   <default>false</default>
+  </entry>
+  <entry name="SimpleModeAutoBalance" type="Bool">
+   <label>Automatically balance uncategorized transactions in simplified mode</label>
+   <whatsthis>In simplified mode, append a balancing split to a dedicated equity (imbalance) account for any transaction whose splits do not sum to zero.</whatsthis>
+   <default>true</default>
+  </entry>
+  <entry name="SimpleModeDeriveOpeningDate" type="Bool">
+   <label>Derive account opening date from earliest transaction in simplified mode</label>
+   <whatsthis>In simplified mode, suppress "transaction before opening date" warnings by deriving the opening date from the earliest booked transaction of an account.</whatsthis>
+   <default>true</default>
+  </entry>
   <entry name="syncLedgerInvestment" type="Bool">
    <label>Synchronize account in ledger and investment view</label>
    <default>true</default>

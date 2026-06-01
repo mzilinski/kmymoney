@@ -458,6 +458,60 @@ Set it to 0 to turn the feature off.</string>
            </widget>
           </item>
           <item>
+           <widget class="QCheckBox" name="kcfg_SimpleMode">
+            <property name="whatsThis">
+             <string>When enabled, transactions may be entered without a counter category. Uncategorized amounts are automatically balanced against a dedicated equity account, and the consistency check no longer reports such transactions as errors.</string>
+            </property>
+            <property name="text">
+             <string>Simplified mode (without double-entry bookkeeping)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="simpleModeOptionsLayout">
+            <item>
+             <spacer name="simpleModeIndent">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeType">
+               <enum>QSizePolicy::Fixed</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <layout class="QVBoxLayout" name="simpleModeSubOptionsLayout">
+              <item>
+               <widget class="QCheckBox" name="kcfg_SimpleModeAutoBalance">
+                <property name="whatsThis">
+                 <string>In simplified mode, append a balancing split to a dedicated equity (imbalance) account for any transaction whose splits do not sum to zero.</string>
+                </property>
+                <property name="text">
+                 <string>Automatically balance uncategorized transactions</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="kcfg_SimpleModeDeriveOpeningDate">
+                <property name="whatsThis">
+                 <string>In simplified mode, suppress "transaction before opening date" warnings by deriving the opening date from the earliest booked transaction of an account.</string>
+                </property>
+                <property name="text">
+                 <string>Derive account opening date from earliest transaction</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </item>
+          <item>
            <widget class="QCheckBox" name="kcfg_ShowCategoriesInAccountsView">
             <property name="whatsThis">
              <string>This option will display the categories in the accounts view also.</string>
