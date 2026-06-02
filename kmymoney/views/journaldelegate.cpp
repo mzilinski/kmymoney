@@ -416,6 +416,10 @@ QWidget* JournalDelegate::createEditor(QWidget* parent, const QStyleOptionViewIt
 
         // in case we have an editor, we check that it can perform the action
         if (d->m_editor) {
+            // propagate the simplified mode to the plain transaction editor
+            if (auto* nte = qobject_cast<NewTransactionEditor*>(d->m_editor)) {
+                nte->setSimpleMode(MyMoneyFile::instance()->simpleMode());
+            }
             if (d->m_editor->setSelectedJournalEntryIds(d->m_view->selectedJournalEntryIds())) {
                 d->m_editor->setAmountPlaceHolderText(index.model());
                 d->m_editorWidthOfs = 8;

@@ -60,6 +60,15 @@ public:
     void setShowAccountCombo(bool show) const;
     void setShowNumberWidget(bool show) const;
     void setShowButtons(bool show) const;
+
+    /**
+     * In simplified mode the split affordance is hidden, the "missing category"
+     * hint is suppressed and the split editor is not opened. A transaction left
+     * without a category is balanced by the engine's auto-balance feature.
+     */
+    void setSimpleMode(bool simpleMode) const;
+    bool isSimpleMode() const;
+
     void setAccountId(const QString& accountId);
 
     QDate postDate() const override;

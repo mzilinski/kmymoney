@@ -81,6 +81,7 @@ public:
         , costCenterRequired(false)
         , inUpdateVat(false)
         , keepCategoryAmount(false)
+        , m_simpleMode(false)
         , loadedFromModel(false)
         , counterAccountIsClosed(false)
         , splitModel(parent, &undoStack)
@@ -159,6 +160,7 @@ public:
     bool costCenterRequired;
     bool inUpdateVat;
     bool keepCategoryAmount;
+    bool m_simpleMode;
     bool loadedFromModel;
     bool counterAccountIsClosed;
     QUndoStack undoStack;
@@ -257,7 +259,11 @@ bool NewTransactionEditor::Private::checkForValidAmount()
     const auto difference = (q->transactionAmount() - (-splitsSum())).abs();
     if (!difference.isZero()) {
         if (splitModel.rowCount() == 0) {
-            WidgetHintFrame::show(ui->categoryCombo, i18nc("@info:tooltip", "The transaction is missing a category assignment."));
+            // In simplified mode an empty category is legal: the engine balances
+            // the transaction against the imbalance account, so do not nag.
+            if (!m_simpleMode) {
+                WidgetHintFrame::show(ui->categoryCombo, i18nc("@info:tooltip", "The transaction is missing a category assignment."));
+            }
         } else if (!hasCalculatedSplit()) {
             WidgetHintFrame::show(
                 ui->creditDebitEdit,
@@ -792,6 +798,11 @@ MyMoneyMoney NewTransactionEditor::Private::splitsSum() const
 
 int NewTransactionEditor::Private::editSplits()
 {
+    // In simplified mode the split editor is not offered; an under-specified
+    // transaction is balanced automatically by the engine.
+    if (m_simpleMode)
+        return QDialog::Rejected;
+
     const auto transactionFactor(ui->creditDebitEdit->value().isNegative() ? MyMoneyMoney::ONE : MyMoneyMoney::MINUS_ONE);
 
     SplitModel dlgSplitModel(q, nullptr, splitModel);
@@ -1851,6 +1862,18 @@ void NewTransactionEditor::setShowButtons(bool show) const
     d->ui->enterButton->setVisible(show);
     d->ui->cancelButton->setVisible(show);
     d->ui->editTabOrderButton->setVisible(show);
+}
+
+void NewTransactionEditor::setSimpleMode(bool simpleMode) const
+{
+    d->m_simpleMode = simpleMode;
+    // hide the affordance that opens the split editor on the category combo
+    d->ui->categoryCombo->setSplitActionVisible(!simpleMode);
+}
+
+bool NewTransactionEditor::isSimpleMode() const
+{
+    return d->m_simpleMode;
 }
 
 void NewTransactionEditor::setShowNumberWidget(bool show) const
