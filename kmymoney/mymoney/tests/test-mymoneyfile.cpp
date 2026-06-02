@@ -2089,6 +2089,103 @@ void MyMoneyFileTest::testConsistencyCheckAutoBalance()
     m->setAutoBalanceMode(false);
 }
 
+// Shared setup for the opening-date derivation tests: an asset account with a
+// late opening date plus one balanced transaction dated well before it. Returns
+// the asset account id.
+static QString setupLateOpeningDateScenario(MyMoneyFile* m)
+{
+    MyMoneyAccount asset;
+    asset.setName(QStringLiteral("DeriveAsset"));
+    asset.setAccountType(eMyMoney::Account::Type::Asset);
+    asset.setOpeningDate(QDate(2026, 1, 1));
+
+    MyMoneyAccount category;
+    category.setName(QStringLiteral("DeriveCategory"));
+    category.setAccountType(eMyMoney::Account::Type::Expense);
+
+    MyMoneyFileTransaction ft;
+    MyMoneyAccount assetParent = m->asset();
+    MyMoneyAccount expenseParent = m->expense();
+    m->addAccount(asset, assetParent);
+    m->addAccount(category, expenseParent);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2013, 6, 15));
+    MyMoneySplit s1;
+    s1.setAccountId(asset.id());
+    s1.setShares(MyMoneyMoney(-1000, 100));
+    s1.setValue(MyMoneyMoney(-1000, 100));
+    MyMoneySplit s2;
+    s2.setAccountId(category.id());
+    s2.setShares(MyMoneyMoney(1000, 100));
+    s2.setValue(MyMoneyMoney(1000, 100));
+    t.addSplit(s1);
+    t.addSplit(s2);
+    m->addTransaction(t);
+    ft.commit();
+
+    return asset.id();
+}
+
+void MyMoneyFileTest::testSimpleModeOpeningDateDerivation()
+{
+    setupBaseCurrency();
+    QString assetId;
+    try {
+        assetId = setupLateOpeningDateScenario(m);
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    QCOMPARE(m->account(assetId).openingDate(), QDate(2026, 1, 1));
+
+    // with simplified mode + derivation enabled, the consistency check lowers the
+    // account's opening date to its earliest transaction
+    m->setSimpleMode(true);
+    m->setSimpleModeDeriveOpeningDate(true);
+    m->setAutoBalanceMode(false);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    QCOMPARE(m->account(assetId).openingDate(), QDate(2013, 6, 15));
+
+    m->setSimpleMode(false);
+    m->setSimpleModeDeriveOpeningDate(false);
+}
+
+void MyMoneyFileTest::testDeriveOpeningDateDisabled()
+{
+    setupBaseCurrency();
+    QString assetId;
+    try {
+        assetId = setupLateOpeningDateScenario(m);
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // simplified mode on, but derivation off: the opening date stays as-is
+    m->setSimpleMode(true);
+    m->setSimpleModeDeriveOpeningDate(false);
+    m->setAutoBalanceMode(false);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    QCOMPARE(m->account(assetId).openingDate(), QDate(2026, 1, 1));
+
+    m->setSimpleMode(false);
+}
+
 void MyMoneyFileTest::testModifyStdAccount()
 {
     QVERIFY(m->asset().currencyId().isEmpty());

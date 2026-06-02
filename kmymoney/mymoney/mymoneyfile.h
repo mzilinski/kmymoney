@@ -500,6 +500,21 @@ public:
     bool simpleMode() const;
 
     /**
+     * Enables or disables, for simplified mode, the derivation of an account's
+     * opening date from its earliest transaction during consistencyCheck(). When
+     * active (together with simpleMode()), "transaction before opening date"
+     * warnings are suppressed because the opening date is lowered to fit.
+     *
+     * @param enable true to derive opening dates in simplified mode
+     */
+    void setSimpleModeDeriveOpeningDate(bool enable);
+
+    /**
+     * @return true if opening-date derivation is enabled for simplified mode.
+     */
+    bool simpleModeDeriveOpeningDate() const;
+
+    /**
       * Adds an institution to the file-global institution pool. A
       * respective institution-ID will be generated for this object.
       * The ID is stored as QString in the object passed as argument.

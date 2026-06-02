@@ -3549,6 +3549,7 @@ void KMyMoneyApp::slotUpdateConfiguration(const QString &dialogName)
     // The engine deliberately does not depend on the GUI settings classes.
     MyMoneyFile::instance()->setSimpleMode(KMyMoneySettings::simpleMode());
     MyMoneyFile::instance()->setAutoBalanceMode(KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeAutoBalance());
+    MyMoneyFile::instance()->setSimpleModeDeriveOpeningDate(KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeDeriveOpeningDate());
 
     const auto showHeaders = KMyMoneySettings::showFancyMarker();
     QDate firstFiscalDate;

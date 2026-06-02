@@ -164,6 +164,7 @@ public:
         , m_inTransaction(false)
         , m_journalBlocking(false)
         , m_simpleMode(false)
+        , m_simpleModeDeriveOpeningDate(false)
         , m_autoBalanceMode(false)
         //                                                      +-#1--+ +#2++-#3-++-#4--+
         , m_numericalCheckNumberExp(QRegularExpression(QString("(.*\\D)?(0*)(\\d+)(\\D.*)?")))
@@ -1007,6 +1008,7 @@ public:
     bool m_inTransaction;
     bool m_journalBlocking;
     bool m_simpleMode;
+    bool m_simpleModeDeriveOpeningDate;
     bool m_autoBalanceMode;
     MyMoneySecurity m_baseCurrency;
 
@@ -2830,6 +2832,16 @@ bool MyMoneyFile::simpleMode() const
     return d->m_simpleMode;
 }
 
+void MyMoneyFile::setSimpleModeDeriveOpeningDate(bool enable)
+{
+    d->m_simpleModeDeriveOpeningDate = enable;
+}
+
+bool MyMoneyFile::simpleModeDeriveOpeningDate() const
+{
+    return d->m_simpleModeDeriveOpeningDate;
+}
+
 #if 0
 unsigned int MyMoneyFile::accountCount() const
 {
@@ -3520,6 +3532,44 @@ QStringList MyMoneyFile::consistencyCheck()
     const auto txProblemHeader(i18n("* Problems with transactions"));
     rc << txProblemHeader;
 
+    // In simplified mode, derive each (non-category, non-investment) account's
+    // opening date from its earliest transaction. This avoids emitting a
+    // "transaction before opening date" warning for every affected transaction
+    // (which can be thousands) when a file was set up with a late opening date.
+    if (d->m_simpleMode && d->m_simpleModeDeriveOpeningDate) {
+        QMap<QString, QDate> earliestByAccount;
+        for (const auto& transaction : std::as_const(tList)) {
+            if (!transaction.postDate().isValid())
+                continue;
+            for (const auto& split : transaction.splits()) {
+                try {
+                    const auto acc = d->accountsModel.itemById(split.accountId());
+                    if (acc.id().isEmpty() || acc.isIncomeExpense() || acc.isInvest())
+                        continue;
+                    const auto it = earliestByAccount.constFind(acc.id());
+                    if (it == earliestByAccount.cend() || transaction.postDate() < it.value())
+                        earliestByAccount[acc.id()] = transaction.postDate();
+                } catch (const MyMoneyException&) {
+                    // invalid account references are reported by the main loop
+                }
+            }
+        }
+        for (auto it = earliestByAccount.cbegin(); it != earliestByAccount.cend(); ++it) {
+            try {
+                MyMoneyAccount acc = d->accountsModel.itemById(it.key());
+                if (acc.openingDate().isValid() && acc.openingDate() > it.value()) {
+                    acc.setOpeningDate(it.value());
+                    this->modifyAccount(acc);
+                    rc << i18n("  * Derived opening date of account '%1' from its earliest transaction (%2).",
+                               acc.name(),
+                               MyMoneyUtils::formatDate(it.value()));
+                    ++problemCount;
+                }
+            } catch (const MyMoneyException&) {
+            }
+        }
+    }
+
     for (const auto& transaction : std::as_const(tList)) {
         MyMoneyTransaction t = transaction;
         bool tChanged = false;
@@ -3719,7 +3769,7 @@ QStringList MyMoneyFile::consistencyCheck()
         // of all accounts involved in the transaction. In case it is not,
         // issue a warning with the details about the transaction incl.
         // the account names and dates involved
-        if (accountOpeningDate.isValid() && t.postDate() < accountOpeningDate) {
+        if (accountOpeningDate.isValid() && t.postDate() < accountOpeningDate && !(d->m_simpleMode && d->m_simpleModeDeriveOpeningDate)) {
             QDate originalPostDate = t.postDate();
 #if 0
             // for now we do not activate the logic to move the post date to a later
