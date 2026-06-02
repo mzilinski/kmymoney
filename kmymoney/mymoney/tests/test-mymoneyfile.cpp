@@ -2038,6 +2038,112 @@ void MyMoneyFileTest::testNoAutoBalanceWhenDisabled()
     QVERIFY(!stored.splitSum().isZero());
 }
 
+void MyMoneyFileTest::testModifyTransactionAutoBalanceIdempotency()
+{
+    testAddAccounts();
+    setupBaseCurrency();
+    m->setAutoBalanceMode(true);
+
+    // add a single-split transaction; it is balanced to 2 splits
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setShares(MyMoneyMoney(-1000, 100));
+    split1.setValue(MyMoneyMoney(-1000, 100));
+    t.addSplit(split1);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+    const auto imbAcc = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+    QCOMPARE(m->transaction(tid).splitCount(), static_cast<uint>(2));
+    QCOMPARE(m->transaction(tid).splitByAccount(imbAcc.id()).value(), MyMoneyMoney(1000, 100));
+
+    // modify the asset split amount; the imbalance split must be replaced, not
+    // duplicated, and the transaction must remain balanced with exactly 2 splits
+    auto stored = m->transaction(tid);
+    auto assetSplit = stored.splitByAccount(QStringLiteral("A000001"));
+    assetSplit.setShares(MyMoneyMoney(-500, 100));
+    assetSplit.setValue(MyMoneyMoney(-500, 100));
+    stored.modifySplit(assetSplit);
+
+    ft.restart();
+    try {
+        m->modifyTransaction(stored);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto modified = m->transaction(tid);
+    QCOMPARE(modified.splitCount(), static_cast<uint>(2));
+    QVERIFY(modified.splitSum().isZero());
+    QCOMPARE(modified.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(500, 100));
+
+    m->setAutoBalanceMode(false);
+}
+
+void MyMoneyFileTest::testAutoBalanceMultiCurrency()
+{
+    setupBaseCurrency();
+
+    // add a foreign currency and an asset account denominated in it
+    MyMoneySecurity usd("USD", "US Dollar", "$");
+    MyMoneyAccount usdAcc;
+    usdAcc.setName(QStringLiteral("USD Cash"));
+    usdAcc.setAccountType(eMyMoney::Account::Type::Asset);
+    usdAcc.setCurrencyId(QStringLiteral("USD"));
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addCurrency(usd);
+        MyMoneyAccount assetParent = m->asset();
+        m->addAccount(usdAcc, assetParent);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    m->setAutoBalanceMode(true);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    t.setCommodity(QStringLiteral("USD"));
+    MyMoneySplit split1;
+    split1.setAccountId(usdAcc.id());
+    split1.setShares(MyMoneyMoney(-1000, 100));
+    split1.setValue(MyMoneyMoney(-1000, 100));
+    t.addSplit(split1);
+
+    ft.restart();
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto stored = m->transaction(t.id());
+    QCOMPARE(stored.splitCount(), static_cast<uint>(2));
+    QVERIFY(stored.splitSum().isZero());
+
+    // the counter split must land in the USD-specific imbalance account, with
+    // value == shares (no exchange rate involved)
+    const auto imbUsd = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(usd);
+    QVERIFY(imbUsd.name().contains(QLatin1String("USD")));
+    const auto s2 = stored.splitByAccount(imbUsd.id());
+    QCOMPARE(s2.value(), MyMoneyMoney(1000, 100));
+    QCOMPARE(s2.shares(), MyMoneyMoney(1000, 100));
+
+    m->setAutoBalanceMode(false);
+}
+
 void MyMoneyFileTest::testConsistencyCheckAutoBalance()
 {
     testAddAccounts();
@@ -2087,6 +2193,52 @@ void MyMoneyFileTest::testConsistencyCheckAutoBalance()
 
     m->setSimpleMode(false);
     m->setAutoBalanceMode(false);
+}
+
+void MyMoneyFileTest::testConsistencyCheckSimpleModeNoAutoBalance()
+{
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // create an unbalanced single-split transaction (auto-balance off)
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setShares(MyMoneyMoney(-700, 100));
+    split1.setValue(MyMoneyMoney(-700, 100));
+    t.addSplit(split1);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+
+    // simplified mode ON but auto-balance OFF: the consistency check must NOT
+    // repair the transaction (it is reported as information only)
+    m->setSimpleMode(true);
+    m->setAutoBalanceMode(false);
+
+    ft.restart();
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto stored = m->transaction(tid);
+    QCOMPARE(stored.splitCount(), static_cast<uint>(1));
+    QVERIFY(!stored.splitSum().isZero());
+
+    m->setSimpleMode(false);
 }
 
 // Shared setup for the opening-date derivation tests: an asset account with a

@@ -2411,9 +2411,16 @@ void MyMoneyFile::balanceTransactionToImbalance(MyMoneyTransaction& transaction)
     for (const auto& split : existingSplits) {
         if (split.accountId().isEmpty())
             continue;
-        const auto acc = account(split.accountId());
-        if (acc.value("ImbalanceAccount") == QLatin1String("Yes")) {
-            transaction.removeSplit(split);
+        try {
+            const auto acc = account(split.accountId());
+            if (acc.value("ImbalanceAccount") == QLatin1String("Yes")) {
+                transaction.removeSplit(split);
+            }
+        } catch (const MyMoneyException&) {
+            // A split referencing a non-existent account cannot be our imbalance
+            // split. Don't let it abort balancing; this path is also reached from
+            // consistencyCheck(), which repairs such orphaned references itself.
+            continue;
         }
     }
 

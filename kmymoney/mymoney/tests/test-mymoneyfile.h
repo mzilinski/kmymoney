@@ -72,7 +72,10 @@ private Q_SLOTS:
     void testImbalance();
     void testAutoBalanceTransaction();
     void testNoAutoBalanceWhenDisabled();
+    void testModifyTransactionAutoBalanceIdempotency();
+    void testAutoBalanceMultiCurrency();
     void testConsistencyCheckAutoBalance();
+    void testConsistencyCheckSimpleModeNoAutoBalance();
     void testSimpleModeOpeningDateDerivation();
     void testDeriveOpeningDateDisabled();
     void testAddPrice();
