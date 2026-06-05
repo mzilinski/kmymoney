@@ -61,6 +61,8 @@ enum class Attribute {
     Number,
     Amount,
     BankID,
+    IBAN,
+    BIC,
     Reconcile,
     Action,
     Shares,
@@ -149,6 +151,8 @@ QString getAttrName(const Statement::Attribute attr)
         {Statement::Attribute::Number,               QStringLiteral("number")},
         {Statement::Attribute::Amount,               QStringLiteral("amount")},
         {Statement::Attribute::BankID,               QStringLiteral("bankid")},
+        {Statement::Attribute::IBAN,                 QStringLiteral("iban")},
+        {Statement::Attribute::BIC,                  QStringLiteral("bic")},
         {Statement::Attribute::Reconcile,            QStringLiteral("reconcile")},
         {Statement::Attribute::Action,               QStringLiteral("action")},
         {Statement::Attribute::Shares,               QStringLiteral("shares")},
@@ -254,6 +258,10 @@ void MyMoneyStatement::write(QDomElement& _root, QDomDocument* _doc) const
         p.setAttribute(getAttrName(Statement::Attribute::Number), transaction.m_strNumber);
         p.setAttribute(getAttrName(Statement::Attribute::Amount), transaction.m_amount.toString());
         p.setAttribute(getAttrName(Statement::Attribute::BankID), transaction.m_strBankID);
+        if (!transaction.m_strIBAN.isEmpty())
+            p.setAttribute(getAttrName(Statement::Attribute::IBAN), transaction.m_strIBAN);
+        if (!transaction.m_strBIC.isEmpty())
+            p.setAttribute(getAttrName(Statement::Attribute::BIC), transaction.m_strBIC);
         p.setAttribute(getAttrName(Statement::Attribute::Reconcile), (int)transaction.m_reconcile);
         p.setAttribute(getAttrName(Statement::Attribute::Action), txAction[transaction.m_eAction]);
 
@@ -338,6 +346,9 @@ bool MyMoneyStatement::read(const QDomElement& _e)
                 t.m_strNumber = c.attribute(getAttrName(Statement::Attribute::Number));
                 t.m_strPayee = c.attribute(getAttrName(Statement::Attribute::Payee));
                 t.m_strBankID = c.attribute(getAttrName(Statement::Attribute::BankID));
+                // optional counterparty account; absent in older statements -> empty
+                t.m_strIBAN = c.attribute(getAttrName(Statement::Attribute::IBAN));
+                t.m_strBIC = c.attribute(getAttrName(Statement::Attribute::BIC));
                 t.m_reconcile = static_cast<eMyMoney::Split::State>(c.attribute(getAttrName(Statement::Attribute::Reconcile)).toInt());
 
                 txt = c.attribute(getAttrName(Statement::Attribute::Action), txAction[eMyMoney::Transaction::Action::Buy]);

@@ -145,6 +145,11 @@
    <whatsthis>In simplified mode, suppress "transaction before opening date" warnings by deriving the opening date from the earliest booked transaction of an account.</whatsthis>
    <default>true</default>
   </entry>
+  <entry name="SimpleModeLearnPayeeIban" type="Bool">
+   <label>Learn payee IBAN/BIC from imported transactions in simplified mode</label>
+   <whatsthis>In simplified mode, store the counterparty's IBAN/BIC supplied by an imported transaction on the matching payee, so that later credit transfers can suggest it automatically. Existing payee bank connections are never overwritten.</whatsthis>
+   <default>true</default>
+  </entry>
   <entry name="syncLedgerInvestment" type="Bool">
    <label>Synchronize account in ledger and investment view</label>
    <default>true</default>

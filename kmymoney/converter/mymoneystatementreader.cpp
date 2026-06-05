@@ -57,6 +57,7 @@
 #include "mymoneystatement.h"
 #include "mymoneytransactionfilter.h"
 #include "mymoneyutils.h"
+#include "payeeibanlearner.h"
 #include "payeesmodel.h"
 #include "scheduledtransactionmatchfinder.h"
 #include "statementmodel.h"
@@ -643,6 +644,17 @@ void MyMoneyStatementReader::processSecurityEntry(const MyMoneyStatement::Securi
     }
 }
 
+void MyMoneyStatementReader::learnPayeeIdentifier(const QString& payeeId, const MyMoneyStatement::Transaction& statementTransaction)
+{
+    if (payeeId.isEmpty())
+        return;
+
+    MyMoneyFile* file = MyMoneyFile::instance();
+    MyMoneyPayee payee = file->payee(payeeId);
+    if (learnPayeeIban(payee, statementTransaction.m_strIBAN, statementTransaction.m_strBIC, statementTransaction.m_strPayee))
+        file->modifyPayee(payee);
+}
+
 void MyMoneyStatementReader::processTransactionEntry(const MyMoneyStatement::Transaction& statementTransactionUnderImport)
 {
     MyMoneyFile* file = MyMoneyFile::instance();
@@ -1183,6 +1195,11 @@ void MyMoneyStatementReader::processTransactionEntry(const MyMoneyStatement::Tra
                 throw MYMONEYEXCEPTION_CSTRING("USERABORT");
             }
         }
+
+        // Learn the counterparty's IBAN/BIC into the payee's address book so that
+        // future SEPA transfers can suggest it (simplified mode, opt-in setting).
+        if (KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeLearnPayeeIban())
+            learnPayeeIdentifier(payeeid, statementTransactionUnderImport);
 
         if (thisaccount.accountType() != Account::Type::Stock) {
             //

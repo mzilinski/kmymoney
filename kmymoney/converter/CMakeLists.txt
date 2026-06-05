@@ -4,6 +4,7 @@ endif()
 
 set (libconverter_a_SOURCES
   mymoneystatementreader.cpp
+  payeeibanlearner.cpp
   transactionmatchfinder.cpp
   existingtransactionmatchfinder.cpp
   scheduledtransactionmatchfinder.cpp

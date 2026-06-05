@@ -64,6 +64,9 @@ public:
         QString m_strMemo;
         QString m_strNumber;
         QString m_strBankID;
+        /** counterparty's account (filled by importers that provide it, e.g. SEPA bookings) */
+        QString m_strIBAN;
+        QString m_strBIC;
         MyMoneyMoney m_amount;
         eMyMoney::Split::State m_reconcile = eMyMoney::Split::State::NotReconciled;
 

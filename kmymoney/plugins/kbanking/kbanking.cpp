@@ -1224,6 +1224,16 @@ void KBankingExt::_xaToStatement(MyMoneyStatement &ks,
     if (p)
         kt.m_strPayee = QString::fromUtf8(p);
 
+    // counterparty account (SEPA bookings); kept structured so the statement
+    // reader can learn the payee's IBAN/BIC. May be empty for non-SEPA bookings,
+    // and the BIC is frequently absent for intra-SEPA transfers.
+    p = AB_Transaction_GetRemoteIban(t);
+    if (p && *p)
+        kt.m_strIBAN = QString::fromUtf8(p);
+    p = AB_Transaction_GetRemoteBic(t);
+    if (p && *p)
+        kt.m_strBIC = QString::fromUtf8(p);
+
     // memo
 
     p = AB_Transaction_GetPurpose(t);

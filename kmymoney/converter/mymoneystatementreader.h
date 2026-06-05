@@ -91,6 +91,14 @@ private:
     void processTransactionEntry(const MyMoneyStatement::Transaction& t_in);
     void processSecurityEntry(const MyMoneyStatement::Security& s_in);
 
+    /**
+     * Learn the counterparty's IBAN/BIC carried by @a statementTransaction into
+     * the address book of the payee @a payeeId, so that future SEPA transfers can
+     * suggest it. Only adds a new identifier (never overwrites an existing one);
+     * does nothing if the payee is empty or the IBAN is missing/invalid.
+     */
+    void learnPayeeIdentifier(const QString& payeeId, const MyMoneyStatement::Transaction& statementTransaction);
+
     enum SelectCreateMode {
         Create = 0,
         Select,
