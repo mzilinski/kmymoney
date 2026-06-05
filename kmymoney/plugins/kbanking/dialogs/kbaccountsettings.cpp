@@ -42,6 +42,8 @@ void KBAccountSettings::loadUi(const MyMoneyKeyValueContainer& kvp)
 {
     d->ui.m_usePayeeAsIsButton->setChecked(true);
     d->ui.m_transactionDownload->setChecked(kvp.value("kbanking-txn-download") != "no");
+    // opt-in, default off: only enabled when the KVP explicitly carries "yes"
+    d->ui.m_sepaSingleTransfer->setChecked(kvp.value("kbanking-sepa-single-transfer") == QLatin1String("yes"));
     d->ui.m_preferredStatementDate->setCurrentIndex(kvp.value("kbanking-statementDate").toInt());
     if (!kvp.value("kbanking-payee-regexp").isEmpty()) {
         d->ui.m_extractPayeeButton->setChecked(true);
@@ -77,6 +79,7 @@ void KBAccountSettings::loadKvp(MyMoneyKeyValueContainer& kvp)
     kvp.deletePair("kbanking-memo-includepayeedetails");
     // The key "kbanking-jobexec" is not used since version 4.8 anymore
     kvp.deletePair("kbanking-jobexec");
+    kvp.deletePair("kbanking-sepa-single-transfer");
 
     if (d->ui.m_extractPayeeButton->isChecked()
             && !d->ui.m_payeeRegExpEdit->text().isEmpty()
@@ -92,6 +95,10 @@ void KBAccountSettings::loadKvp(MyMoneyKeyValueContainer& kvp)
     }
     if (!d->ui.m_transactionDownload->isChecked())
         kvp["kbanking-txn-download"] = "no";
+
+    // opt-in, default off: store only when enabled so an absent key == upstream behavior
+    if (d->ui.m_sepaSingleTransfer->isChecked())
+        kvp["kbanking-sepa-single-transfer"] = "yes";
 
     // remove linebreaks, default is on
     if (!d->ui.m_removeLineBreaksFromMemo->isChecked())

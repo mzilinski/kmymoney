@@ -312,6 +312,7 @@ QWidget* KBanking::accountConfigTab(const MyMoneyAccount& acc, QString& name)
     name = i18n("Online settings");
     if (m_kbanking) {
         m_accountSettings = new KBAccountSettings(acc, nullptr);
+        m_accountSettingsId = acc.id();
         m_accountSettings->loadUi(kvp);
         return m_accountSettings;
     }
@@ -327,10 +328,62 @@ MyMoneyKeyValueContainer KBanking::onlineBankingSettings(const MyMoneyKeyValueCo
     kvp["provider"] = objectName().toLower();
     if (m_accountSettings) {
         m_accountSettings->loadKvp(kvp);
+        // The AqHBCI "prefer single SEPA transfer" flag lives in the AqBanking
+        // account configuration, so it has to be (un)set on the persisted account
+        // here rather than per transaction. Only touch AqBanking when the user
+        // actually changed the option, so unrelated saves (and accounts that do
+        // not use the option) never rewrite the backend configuration.
+        const bool wasSingle = (current.value("kbanking-sepa-single-transfer") == QLatin1String("yes"));
+        const bool preferSingle = (kvp.value("kbanking-sepa-single-transfer") == QLatin1String("yes"));
+        if (preferSingle != wasSingle)
+            setSepaPreferSingleTransfer(m_accountSettingsId, preferSingle);
     }
     return kvp;
 }
 
+void KBanking::setSepaPreferSingleTransfer(const QString& accountId, bool enable)
+{
+    if (!m_kbanking || accountId.isEmpty())
+        return;
+
+    AB_ACCOUNT_SPEC* abAccount = aqbAccount(accountId);
+    if (!abAccount)
+        // account not mapped (or income/expense): nothing to configure in AqBanking
+        return;
+
+    // The flag only exists in the AqHBCI backend; KBanking may also serve OFX,
+    // EBICS or PayPal accounts where this control command does not apply.
+    if (qstrcmp(AB_AccountSpec_GetBackendName(abAccount), "aqhbci") != 0)
+        return;
+
+    const uint32_t uid = AB_AccountSpec_GetUniqueId(abAccount);
+    if (uid == 0)
+        return;
+
+    // The flag is managed through the AqHBCI backend control interface. argv[0]
+    // selects the verb (add vs. remove the flag); the account is addressed by its
+    // unique id and the flag by its name. AB_Banking_ProviderControl() only reads
+    // the argv strings, but its signature requires a mutable char**, so the
+    // (detached) byte arrays have to stay alive for the duration of the call.
+    QByteArray verb(enable ? "addaccountflags" : "subaccountflags");
+    QByteArray optAccount("--account");
+    QByteArray accountIdStr(QByteArray::number(uid));
+    QByteArray optFlags("--flags");
+    QByteArray flagValue("sepaPreferSingleTransfer");
+
+    char* argv[] = {
+        verb.data(),
+        optAccount.data(),
+        accountIdStr.data(),
+        optFlags.data(),
+        flagValue.data(),
+    };
+
+    const int rv = AB_Banking_ProviderControl(m_kbanking->getCInterface(), "aqhbci", 5, argv);
+    if (rv != 0) {
+        qWarning("KBanking: unable to %s the SEPA single-transfer flag for account %u (aqhbci control returned %d)", enable ? "set" : "clear", uid, rv);
+    }
+}
 
 void KBanking::createActions()
 {

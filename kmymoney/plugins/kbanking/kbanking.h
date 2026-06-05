@@ -166,6 +166,16 @@ Q_SIGNALS:
     void queueChanged();
 
 private:
+    /**
+     * Applies the AqHBCI per-account "prefer single SEPA transfer" flag
+     * (sepaPreferSingleTransfer) for the mapped account @a accountId.
+     * Adds the flag when @a enable is @c true and removes it otherwise, so
+     * that the disabled state restores AqBanking's default behavior. The flag
+     * has to be set on the persisted AqBanking account (not on the individual
+     * AB_TRANSACTION), because AqHBCI reads it when it builds the HBCI job.
+     */
+    void setSepaPreferSingleTransfer(const QString& accountId, bool enable);
+
     class Private;
     Private* const d;
     KAction*                m_configAction;
@@ -173,6 +183,12 @@ private:
     KBankingExt*            m_kbanking;
     QMap<QString, QString>  m_protocolConversionMap;
     KBAccountSettings* m_accountSettings;
+    /**
+     * KMyMoney id of the account whose online settings tab is currently shown.
+     * Captured in accountConfigTab() so onlineBankingSettings() can apply the
+     * AqHBCI account flag to the right account when the dialog is accepted.
+     */
+    QString m_accountSettingsId;
     /**
      * @brief @ref onlineJob "onlineJobs" which are executed at the moment
      * Key is onlineJob->id(). This container is used during execution of jobs.
