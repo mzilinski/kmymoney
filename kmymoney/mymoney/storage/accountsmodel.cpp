@@ -560,6 +560,30 @@ QVariant AccountsModel::headerData(int section, Qt::Orientation orientation, int
     return MyMoneyModelBase::headerData(section, orientation, role);
 }
 
+#ifdef ENABLE_QML_HOME
+QHash<int, QByteArray> AccountsModel::roleNames() const
+{
+    // Start from the base names (Qt::DisplayRole, Qt::DecorationRole, ...) and only
+    // add the custom eMyMoney roles that the QML Home view consumes. Insert strictly
+    // by integer value and never map two names onto one int: several eMyMoney roles
+    // are intentional aliases (e.g. InstitutionNameRole == AccountNameRole and
+    // InstitutionBankCodeRole == AccountIsAssetLiabilityRole), so only the account
+    // spellings are listed here.
+    auto names = QAbstractItemModel::roleNames();
+    names.insert(eMyMoney::Model::IdRole, "accountId");
+    names.insert(eMyMoney::Model::AccountNameRole, "accountName");
+    names.insert(eMyMoney::Model::AccountFullNameRole, "accountFullName");
+    names.insert(eMyMoney::Model::AccountGroupRole, "accountGroup");
+    names.insert(eMyMoney::Model::AccountInstitutionIdRole, "institutionId");
+    names.insert(eMyMoney::Model::AccountIsClosedRole, "isClosed");
+    names.insert(eMyMoney::Model::AccountIsFavoriteIndexRole, "isFavorite");
+    names.insert(eMyMoney::Model::AccountIsAssetLiabilityRole, "isAssetLiability");
+    names.insert(eMyMoney::Model::AccountCurrencyIdRole, "currencyId");
+    names.insert(eMyMoney::Model::AccountBalanceRole, "balanceValue");
+    return names;
+}
+#endif
+
 QVariant AccountsModel::data(const QModelIndex& idx, int role) const
 {
     if (!idx.isValid())

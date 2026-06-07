@@ -21,6 +21,8 @@
 // ----------------------------------------------------------------------------
 // Project Includes
 
+#include <config-kmymoney.h>
+
 #include "kmymoneyviewbase.h"
 
 /**
@@ -50,6 +52,16 @@ public:
      * without calling refresh().
      */
     void delayedRefresh();
+
+#ifdef ENABLE_QML_HOME
+    /**
+     * Public forwarder used by HomeViewBridge to navigate out of the experimental
+     * QML home view. Reproduces the slotOpenUrl contract (stash @p id on the shared
+     * pActions entry, then emit requestActionTrigger), which a foreign QObject cannot
+     * do itself because requestActionTrigger is a signal of this class.
+     */
+    void triggerActionForBridge(eMenu::Action action, const QString& id);
+#endif
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

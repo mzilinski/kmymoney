@@ -70,6 +70,17 @@
 #include "mymoneyutils.h"
 #include "plugins/views/reports/reportsviewenums.h"
 
+#ifdef ENABLE_QML_HOME
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickWidget>
+
+#include <KLocalizedQmlContext>
+
+#include "dashboardaccountsmodel.h"
+#include "homeviewbridge.h"
+#endif
+
 #define VIEW_LEDGER         "ledger"
 #define VIEW_SCHEDULE       "schedule"
 #define VIEW_WELCOME        "welcome"
@@ -112,6 +123,12 @@ public:
     explicit KHomeViewPrivate(KHomeView* qq)
         : KMyMoneyViewBasePrivate(qq)
         , m_view(nullptr)
+#ifdef ENABLE_QML_HOME
+        , m_qmlView(nullptr)
+        , m_bridge(nullptr)
+        , m_dashboardModel(nullptr)
+        , m_useQml(false)
+#endif
         , m_showAllSchedules(false)
         , m_needLoad(true)
         , m_skipRefresh(false)
@@ -152,17 +169,31 @@ public:
         vbox->setSpacing(6);
         vbox->setContentsMargins(0, 0, 0, 0);
 
-        m_view = new KMMEmptyTextBrowser();
-        auto font = m_view->font();
-        font.setPointSize(32);
-        m_view->setEmptyFont(font);
-        m_view->setEmptyText(i18nc("@info:placeholder Shown when the application starts up", "Loading..."));
-        m_view->setOpenLinks(false);
-        m_view->installEventFilter(q);
+        bool useQml = false;
+#ifdef ENABLE_QML_HOME
+        if (KMyMoneySettings::qmlHomeView()) {
+            // Set the flag BEFORE creating any QML widget: building the QQuickWidget
+            // re-enters showEvent()->refresh()->loadView() before m_qmlView is assigned,
+            // and the flag is what makes that re-entrant call take the safe QML branch.
+            m_useQml = true;
+            useQml = initQml(vbox);
+            m_useQml = useQml; // clear again if the QML failed to load (classic fallback)
+        }
+#endif
 
-        vbox->addWidget(m_view);
+        if (!useQml) {
+            m_view = new KMMEmptyTextBrowser();
+            auto font = m_view->font();
+            font.setPointSize(32);
+            m_view->setEmptyFont(font);
+            m_view->setEmptyText(i18nc("@info:placeholder Shown when the application starts up", "Loading..."));
+            m_view->setOpenLinks(false);
+            m_view->installEventFilter(q);
 
-        q->connect(m_view, &QTextBrowser::anchorClicked, q, &KHomeView::slotOpenUrl);
+            vbox->addWidget(m_view);
+
+            q->connect(m_view, &QTextBrowser::anchorClicked, q, &KHomeView::slotOpenUrl);
+        }
 
         q->connect(MyMoneyFile::instance(), &MyMoneyFile::dataChanged, q, &KHomeView::delayedRefresh);
 
@@ -174,6 +205,60 @@ public:
 
         m_needsRefresh = false;
     }
+
+#ifdef ENABLE_QML_HOME
+    /**
+     * Builds the experimental Kirigami/QML home view into @p vbox. Returns false (and
+     * cleans up) if the QML fails to load, so the caller falls back to the classic
+     * HTML view and the home page is never blank.
+     */
+    bool initQml(QVBoxLayout* vbox)
+    {
+        Q_Q(KHomeView);
+
+        // The .qrc is compiled into the (static) views library; this registers it.
+        // Must match the home.qrc file stem and run before the QQuickWidget loads.
+        Q_INIT_RESOURCE(home);
+
+        m_bridge = new HomeViewBridge(q, q);
+        m_bridge->setFileOpen(m_fileOpen);
+
+        m_dashboardModel = new DashboardAccountsModel(q);
+        m_dashboardModel->setSourceModel(MyMoneyFile::instance()->accountsModel());
+
+        m_qmlView = new QQuickWidget(q);
+        m_qmlView->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        // Avoid a white first-frame flash before Kirigami paints its themed background.
+        m_qmlView->setClearColor(q->palette().color(QPalette::Window));
+
+        // i18n in QML works only with a localized context on the engine root context,
+        // installed BEFORE setSource(); otherwise every i18n() is a ReferenceError.
+        // setupLocalizedContext() creates a KLocalizedQmlContext and installs it on the
+        // root context (the modern replacement for the deprecated KLocalizedContext).
+        KLocalization::setupLocalizedContext(m_qmlView->engine());
+        m_qmlView->rootContext()->setContextProperty(QStringLiteral("accountsModel"), m_dashboardModel);
+        m_qmlView->rootContext()->setContextProperty(QStringLiteral("homeBridge"), m_bridge);
+
+        m_qmlView->setSource(QUrl(QStringLiteral("qrc:/kmymoney/qml/home/Home.qml")));
+        if (m_qmlView->status() == QQuickWidget::Error) {
+            qWarning() << "KHomeView: failed to load the QML home view, falling back to the classic view:";
+            const auto errors = m_qmlView->errors();
+            for (const auto& error : errors)
+                qWarning() << error.toString();
+            delete m_qmlView;
+            m_qmlView = nullptr;
+            delete m_dashboardModel;
+            m_dashboardModel = nullptr;
+            delete m_bridge;
+            m_bridge = nullptr;
+            return false;
+        }
+
+        vbox->addWidget(m_qmlView);
+        m_focusWidget = m_qmlView;
+        return true;
+    }
+#endif
 
     /**
       * Print an account and its balance and limit
@@ -449,6 +534,21 @@ public:
     void loadView()
     {
         Q_Q(KHomeView);
+
+#ifdef ENABLE_QML_HOME
+        // In QML mode the classic HTML browser does not exist; just keep the QML
+        // dashboard in sync and return before any m_view dereference below (this also
+        // short-circuits prepareIcons(), the only other m_view user, called here).
+        // Guard on m_useQml (not m_qmlView): this can run re-entrantly while the
+        // QQuickWidget is still being constructed, i.e. before m_qmlView is assigned.
+        if (m_useQml) {
+            if (m_bridge) {
+                m_bridge->setFileOpen(m_fileOpen);
+                m_bridge->refreshSummary();
+            }
+            return;
+        }
+#endif
 
         const auto stockPointSize = q->font().pointSizeF();
         const auto currentPointSize = m_view->font().pointSizeF();
@@ -1976,6 +2076,16 @@ public:
     typedef QMap<QDate, MyMoneyMoney> dailyBalances;
 
     KMMEmptyTextBrowser* m_view;
+#ifdef ENABLE_QML_HOME
+    QQuickWidget* m_qmlView;
+    HomeViewBridge* m_bridge;
+    DashboardAccountsModel* m_dashboardModel;
+    // True once the QML home view is (being) set up. Set BEFORE any QML widget is
+    // created so a re-entrant loadView() (triggered by QQuickWidget's show cascade,
+    // before m_qmlView is assigned) takes the QML branch instead of dereferencing the
+    // never-created m_view.
+    bool m_useQml;
+#endif
 
     QString m_html;
     bool m_showAllSchedules;

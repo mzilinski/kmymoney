@@ -1,0 +1,10 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/kmymoney/qml/home">
+        <file alias="Home.qml">qml/home/Home.qml</file>
+    </qresource>
+    <!-- Root-prefixed so Qt Quick Controls finds it at the default :/qtquickcontrols2.conf -->
+    <qresource prefix="/">
+        <file>qtquickcontrols2.conf</file>
+    </qresource>
+</RCC>

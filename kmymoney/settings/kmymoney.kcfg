@@ -150,6 +150,11 @@
    <whatsthis>In simplified mode, store the counterparty's IBAN/BIC supplied by an imported transaction on the matching payee, so that later credit transfers can suggest it automatically. Existing payee bank connections are never overwritten.</whatsthis>
    <default>true</default>
   </entry>
+  <entry name="qmlHomeView" type="Bool">
+   <label>Use the experimental Kirigami/QML home view</label>
+   <whatsthis>When enabled, the Home view is rendered with an experimental modern Kirigami/QML dashboard instead of the classic HTML overview. This is a read-only proof of concept; changing it takes effect after restarting the application.</whatsthis>
+   <default>false</default>
+  </entry>
   <entry name="syncLedgerInvestment" type="Bool">
    <label>Synchronize account in ledger and investment view</label>
    <default>true</default>

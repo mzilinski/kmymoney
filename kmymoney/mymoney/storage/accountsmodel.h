@@ -15,6 +15,8 @@
 // ----------------------------------------------------------------------------
 // Project Includes
 
+#include <config-kmymoney.h>
+
 #include "kmm_mymoney_export.h"
 #include "mymoneyenums.h"
 #include "mymoneymodel.h"
@@ -74,6 +76,17 @@ public:
     int columnCount(const QModelIndex& parent = QModelIndex()) const final override;
     QVariant data(const QModelIndex& idx, int role = Qt::DisplayRole) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const final override;
+
+#ifdef ENABLE_QML_HOME
+    /**
+     * Maps the custom @c eMyMoney::Model::Roles to QML-friendly names so the model
+     * can be consumed from QML. Pure Qt-Core plumbing: it starts from the base
+     * @c QAbstractItemModel::roleNames() and only inserts non-colliding @c UserRole+
+     * entries; no presentation roles live here. Only compiled with the experimental
+     * Kirigami/QML Home view so default builds keep the upstream role-name table.
+     */
+    QHash<int, QByteArray> roleNames() const override;
+#endif
 
     bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) final override;
 

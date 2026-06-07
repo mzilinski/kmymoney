@@ -44,6 +44,9 @@
 #cmakedefine ENABLE_COSTCENTER 1
 /* No external component */
 
+#cmakedefine ENABLE_QML_HOME 1
+/* Experimental Kirigami/QML Home view (PoC); requires Qt6 Quick/Qml/QuickWidgets + KF6 Kirigami */
+
 #include <qglobal.h>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)

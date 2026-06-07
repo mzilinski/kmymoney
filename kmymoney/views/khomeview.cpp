@@ -63,6 +63,12 @@ void KHomeView::executeAction(eMenu::Action action, const SelectedObjects& selec
     switch (action) {
     case eMenu::Action::FileNew:
         d->m_fileOpen = true;
+#ifdef ENABLE_QML_HOME
+        // FileNew does not call loadView(), so drive the QML welcome->dashboard switch
+        // explicitly (the classic view leaves this to the next dataChanged refresh).
+        if (d->m_bridge)
+            d->m_bridge->setFileOpen(true);
+#endif
         break;
     case eMenu::Action::Print:
         if (d->isActiveView()) {
@@ -236,6 +242,16 @@ void KHomeView::slotOpenUrl(const QUrl &url)
         }
     }
 }
+
+#ifdef ENABLE_QML_HOME
+void KHomeView::triggerActionForBridge(eMenu::Action action, const QString& id)
+{
+    // Same contract slotOpenUrl uses for navigation: stash the id on the shared
+    // global pActions entry the application logic reads, then emit the trigger.
+    pActions[action]->setData(id);
+    Q_EMIT requestActionTrigger(action);
+}
+#endif
 
 void KHomeView::slotSettingsChanged()
 {

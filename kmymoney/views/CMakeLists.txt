@@ -73,7 +73,15 @@ set(libviews_a_UI
 # on libkmymoney.so (the widgets library)
 ki18n_wrap_ui(libviews_a_SOURCES ${libviews_a_UI})
 
-add_library(views STATIC ${libviews_a_SOURCES})
+# Experimental Kirigami/QML Home view (PoC): additive, fully guarded so default
+# builds compile and link exactly as before.
+set(libviews_qml_SOURCES)
+if(ENABLE_QML_HOME)
+  qt_add_resources(libviews_qml_SOURCES home.qrc)
+  list(APPEND libviews_a_SOURCES homeviewbridge.cpp dashboardaccountsmodel.cpp)
+endif()
+
+add_library(views STATIC ${libviews_a_SOURCES} ${libviews_qml_SOURCES})
 
 # TODO: Remove this dependency. But it is needed as long as the payee editor uses these objects directly
 # This should be replaced by virtual methods in a pure abstract object.
@@ -87,6 +95,20 @@ target_link_libraries(views PUBLIC
   kmm_textbrowser
   Alkimia::alkimia
 )
+
+if(ENABLE_QML_HOME)
+  # PRIVATE: views is a STATIC archive, so these still reach the final executable at
+  # link time without leaking Quick/Kirigami as interface requirements to test targets.
+  target_link_libraries(views PRIVATE
+    Qt::Quick
+    Qt::Qml
+    Qt::QuickWidgets
+    KF${QT_MAJOR_VERSION}::Kirigami
+    KF${QT_MAJOR_VERSION}::I18n
+    KF${QT_MAJOR_VERSION}::I18nQml
+    KF${QT_MAJOR_VERSION}::ItemModels
+  )
+endif()
 
 # we rely on some of the dialogs to be generated
 add_dependencies(views newinvestmentwizard newaccountwizard newloanwizard endingbalancedlg)

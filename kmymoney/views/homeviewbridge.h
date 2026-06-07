@@ -1,0 +1,74 @@
+/*
+    SPDX-FileCopyrightText: 2026 Malte Zilinski <malte@zilinski.eu>
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
+
+#ifndef HOMEVIEWBRIDGE_H
+#define HOMEVIEWBRIDGE_H
+
+#include <config-kmymoney.h>
+
+#ifdef ENABLE_QML_HOME
+
+// ----------------------------------------------------------------------------
+// QT Includes
+
+#include <QObject>
+#include <QString>
+
+// ----------------------------------------------------------------------------
+// Project Includes
+
+#include "mymoneymoney.h"
+
+class KHomeView;
+
+/**
+ * GUI-layer bridge between the experimental Kirigami/QML Home view and the rest of
+ * the application. It exposes the read-only net-worth summary as text properties and
+ * a single navigation entry point to QML, and relays clicks back into the widget
+ * world through @c KHomeView::triggerActionForBridge().
+ *
+ * Only the read-only essentials needed by MR1 are exposed; editing, schedules,
+ * reports and charts are deliberately out of scope.
+ */
+class HomeViewBridge : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QString netWorthText READ netWorthText NOTIFY summaryChanged)
+    Q_PROPERTY(QString assetsText READ assetsText NOTIFY summaryChanged)
+    Q_PROPERTY(QString liabilitiesText READ liabilitiesText NOTIFY summaryChanged)
+    Q_PROPERTY(bool fileOpen READ fileOpen NOTIFY fileOpenChanged)
+
+public:
+    explicit HomeViewBridge(KHomeView* view, QObject* parent = nullptr);
+
+    QString netWorthText() const;
+    QString assetsText() const;
+    QString liabilitiesText() const;
+    bool fileOpen() const;
+
+    /// Opens the ledger of @p accountId (the only navigation MR1 needs).
+    Q_INVOKABLE void openAccountLedger(const QString& accountId);
+
+public Q_SLOTS:
+    /// Updates the welcome/dashboard state; called from the load/new/close paths.
+    void setFileOpen(bool open);
+    /// Recomputes the net-worth aggregates from the engine accounts model.
+    void refreshSummary();
+
+Q_SIGNALS:
+    void summaryChanged();
+    void fileOpenChanged();
+
+private:
+    KHomeView* m_view;
+    bool m_fileOpen;
+    MyMoneyMoney m_assets;
+    MyMoneyMoney m_liabilities;
+    MyMoneyMoney m_netWorth;
+};
+
+#endif // ENABLE_QML_HOME
+#endif // HOMEVIEWBRIDGE_H
