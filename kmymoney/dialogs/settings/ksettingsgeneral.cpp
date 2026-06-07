@@ -6,6 +6,8 @@
 
 #include "ksettingsgeneral.h"
 
+#include <config-kmymoney.h>
+
 // ----------------------------------------------------------------------------
 // QT Includes
 
@@ -51,6 +53,13 @@ KSettingsGeneral::KSettingsGeneral(QWidget* parent) :
 {
     Q_D(KSettingsGeneral);
     d->ui->setupUi(this);
+
+#ifndef ENABLE_QML_HOME
+    // Hide the experimental QML-home toggle when the feature is not compiled in, so
+    // default builds show no option that would do nothing. The kcfg_ widget stays in
+    // the tree (just hidden) to keep KConfigDialogManager's auto-binding valid.
+    d->ui->groupBox_qmlHome->setVisible(false);
+#endif
 
     auto frameCollection = new WidgetHintFrameCollection(this);
     frameCollection->addFrame(new WidgetHintFrame(d->ui->kcfg_StartDate));

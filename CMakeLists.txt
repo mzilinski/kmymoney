@@ -414,10 +414,11 @@ add_feature_info(KBanking ENABLE_KBANKING "Interface for the following online ba
 if(BUILD_WITH_QT6)
     find_package(Qt${QT_MAJOR_VERSION} ${QT_MIN_VERSION} QUIET OPTIONAL_COMPONENTS Quick Qml)
     find_package(KF${QT_MAJOR_VERSION}Kirigami ${KF_MIN_VERSION} QUIET)
+    find_package(KF${QT_MAJOR_VERSION}QuickCharts ${KF_MIN_VERSION} QUIET)
 endif()
 
 cmake_dependent_option(ENABLE_QML_HOME "Enable experimental Kirigami/QML Home view (PoC)" OFF
-                       "BUILD_WITH_QT6;Qt${QT_MAJOR_VERSION}QuickWidgets_FOUND;Qt${QT_MAJOR_VERSION}Quick_FOUND;Qt${QT_MAJOR_VERSION}Qml_FOUND;KF${QT_MAJOR_VERSION}Kirigami_FOUND" OFF)
+                       "BUILD_WITH_QT6;Qt${QT_MAJOR_VERSION}QuickWidgets_FOUND;Qt${QT_MAJOR_VERSION}Quick_FOUND;Qt${QT_MAJOR_VERSION}Qml_FOUND;KF${QT_MAJOR_VERSION}Kirigami_FOUND;KF${QT_MAJOR_VERSION}QuickCharts_FOUND" OFF)
 
 add_feature_info(QmlHome ENABLE_QML_HOME "Modern read-only Kirigami/QML dashboard for the Home view (experimental)")
 

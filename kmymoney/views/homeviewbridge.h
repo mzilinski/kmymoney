@@ -39,6 +39,9 @@ class HomeViewBridge : public QObject
     Q_PROPERTY(QString netWorthText READ netWorthText NOTIFY summaryChanged)
     Q_PROPERTY(QString assetsText READ assetsText NOTIFY summaryChanged)
     Q_PROPERTY(QString liabilitiesText READ liabilitiesText NOTIFY summaryChanged)
+    // Numeric magnitudes (absolute, base currency) for the QuickCharts net-worth pie.
+    Q_PROPERTY(double assetsValue READ assetsValue NOTIFY summaryChanged)
+    Q_PROPERTY(double liabilitiesValue READ liabilitiesValue NOTIFY summaryChanged)
     Q_PROPERTY(bool fileOpen READ fileOpen NOTIFY fileOpenChanged)
 
 public:
@@ -47,10 +50,14 @@ public:
     QString netWorthText() const;
     QString assetsText() const;
     QString liabilitiesText() const;
+    double assetsValue() const;
+    double liabilitiesValue() const;
     bool fileOpen() const;
 
     /// Opens the ledger of @p accountId (the only navigation MR1 needs).
     Q_INVOKABLE void openAccountLedger(const QString& accountId);
+    /// Formats a base-currency magnitude for display (used by the pie legend).
+    Q_INVOKABLE QString formatValue(double value) const;
 
 public Q_SLOTS:
     /// Updates the welcome/dashboard state; called from the load/new/close paths.

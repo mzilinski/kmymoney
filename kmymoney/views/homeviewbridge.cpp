@@ -62,6 +62,19 @@ QString HomeViewBridge::liabilitiesText() const
     return formatBaseCurrency(m_liabilities, m_fileOpen);
 }
 
+double HomeViewBridge::assetsValue() const
+{
+    // Absolute magnitude for the pie wedge (a pie cannot render a negative area; the
+    // sign is conveyed by the header text). Zero when no file is open.
+    return m_fileOpen ? qAbs(m_assets.toDouble()) : 0.0;
+}
+
+double HomeViewBridge::liabilitiesValue() const
+{
+    // m_liabilities is stored in net-worth convention (negative); take the magnitude.
+    return m_fileOpen ? qAbs(m_liabilities.toDouble()) : 0.0;
+}
+
 bool HomeViewBridge::fileOpen() const
 {
     return m_fileOpen;
@@ -71,6 +84,21 @@ void HomeViewBridge::openAccountLedger(const QString& accountId)
 {
     if (m_view && !accountId.isEmpty())
         m_view->triggerActionForBridge(eMenu::Action::GoToAccount, accountId);
+}
+
+QString HomeViewBridge::formatValue(double value) const
+{
+    if (!m_fileOpen)
+        return QString();
+    try {
+        // Construct with the base-currency fraction (not the default denom 100) so the
+        // legend keeps the same precision as assetsText()/liabilitiesText() for
+        // currencies whose smallest fraction is not 1/100 (e.g. dinar 1/1000).
+        const auto fraction = MyMoneyFile::instance()->baseCurrency().smallestAccountFraction();
+        return formatBaseCurrency(MyMoneyMoney(value, fraction), m_fileOpen);
+    } catch (const MyMoneyException&) {
+        return QString();
+    }
 }
 
 void HomeViewBridge::setFileOpen(bool open)

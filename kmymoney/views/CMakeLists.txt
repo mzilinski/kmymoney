@@ -107,6 +107,7 @@ if(ENABLE_QML_HOME)
     KF${QT_MAJOR_VERSION}::I18n
     KF${QT_MAJOR_VERSION}::I18nQml
     KF${QT_MAJOR_VERSION}::ItemModels
+    KF${QT_MAJOR_VERSION}::QuickCharts
   )
 endif()
 

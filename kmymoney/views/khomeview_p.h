@@ -143,6 +143,13 @@ public:
 
     ~KHomeViewPrivate() {
         Q_Q(KHomeView);
+#ifdef ENABLE_QML_HOME
+        // Unload the QML before the context objects (bridge/model, constructed first and
+        // thus destroyed before m_qmlView) are torn down, so exiting does not re-evaluate
+        // Home.qml's bindings against an already-destroyed homeBridge/accountsModel.
+        if (m_qmlView)
+            m_qmlView->setSource(QUrl());
+#endif
         // if user wants to remember the font size, store it here
         if (KMyMoneySettings::rememberZoomFactor() && m_view) {
             // zoom factor

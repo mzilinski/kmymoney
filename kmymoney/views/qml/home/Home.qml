@@ -7,6 +7,8 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
+import org.kde.quickcharts as Charts
+import org.kde.quickcharts.controls as ChartsControls
 
 // Experimental read-only Kirigami dashboard for the Home view (PoC). Loaded into a
 // bare QQuickWidget; ScrollablePage was confirmed to render correctly there without
@@ -30,7 +32,7 @@ Kirigami.ScrollablePage {
             explanation: i18n("Open or create a file to see your financial overview.")
         }
 
-        // ---- Net-worth header (text only; charts deferred to a later MR) ----
+        // ---- Net-worth header (text) ----
         Kirigami.AbstractCard {
             visible: homeBridge.fileOpen
             Layout.fillWidth: true
@@ -41,6 +43,38 @@ Kirigami.ScrollablePage {
                 }
                 QQC2.Label { text: i18n("Total Assets: %1", homeBridge.assetsText) }
                 QQC2.Label { text: i18n("Total Liabilities: %1", homeBridge.liabilitiesText) }
+            }
+        }
+
+        // ---- Net-worth pie (assets vs. liabilities, magnitude-based) ----
+        Kirigami.AbstractCard {
+            visible: homeBridge.fileOpen
+            Layout.fillWidth: true
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Heading { level: 3; text: i18n("Assets vs. Liabilities") }
+
+                Charts.PieChart {
+                    id: netWorthPie
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 12
+                    valueSources: Charts.ArraySource {
+                        array: [homeBridge.assetsValue, homeBridge.liabilitiesValue]
+                    }
+                    nameSource: Charts.ArraySource {
+                        array: [i18n("Assets"), i18n("Liabilities")]
+                    }
+                    // Theme-aware, accessible colours; green assets / red liabilities.
+                    colorSource: Charts.ArraySource {
+                        array: [Kirigami.Theme.positiveTextColor, Kirigami.Theme.negativeTextColor]
+                    }
+                }
+
+                ChartsControls.Legend {
+                    Layout.fillWidth: true
+                    chart: netWorthPie
+                    formatValue: (value) => homeBridge.formatValue(value)
+                }
             }
         }
 
