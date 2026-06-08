@@ -561,6 +561,12 @@ public:
                 m_bridge->setFileOpen(m_fileOpen);
                 m_bridge->refreshSummary();
             }
+            // Re-apply the home-view account preferences (hide-zero-balance / show-all)
+            // and re-filter. This is the single settings/balance-relative re-eval point,
+            // reached on show, on dataChanged (via delayedRefresh) and on settings change
+            // (via slotSettingsChanged -> refresh), so the cards stay in sync with both.
+            if (m_dashboardModel)
+                m_dashboardModel->updateSettings();
             // Recompute due schedules on every show/refresh: the selection is
             // date-relative, so it must be re-evaluated as time passes (the classic
             // showScheduledPayments() does this on each render). The model also

@@ -57,6 +57,11 @@ public:
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
+    /// Re-reads the home-view account preferences (hide-zero-balance / show-all-accounts)
+    /// from KMyMoneySettings and re-runs the filter. Called from the home view's refresh
+    /// path so toggling the settings (or balances crossing zero) updates the cards.
+    void updateSettings();
+
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
 
@@ -65,6 +70,12 @@ private:
 
     KDescendantsProxyModel* m_descendants;
     AccountsModel* m_accountsModel;
+    // Cached home-view preferences (read via updateSettings()), mirroring the classic
+    // showAccounts() rule in khomeview_p.h: a zero-balance account is hidden only when
+    // hideZeroBalanceAccountsHome AND not showAllAccounts; closed accounts appear only
+    // when showAllAccounts is set.
+    bool m_hideZeroBalance;
+    bool m_showAllAccounts;
 };
 
 #endif // ENABLE_QML_HOME
