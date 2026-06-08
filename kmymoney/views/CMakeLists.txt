@@ -78,7 +78,7 @@ ki18n_wrap_ui(libviews_a_SOURCES ${libviews_a_UI})
 set(libviews_qml_SOURCES)
 if(ENABLE_QML_HOME)
   qt_add_resources(libviews_qml_SOURCES home.qrc)
-  list(APPEND libviews_a_SOURCES homeviewbridge.cpp dashboardaccountsmodel.cpp)
+  list(APPEND libviews_a_SOURCES homeviewbridge.cpp dashboardaccountsmodel.cpp schedulesduemodel.cpp)
 endif()
 
 add_library(views STATIC ${libviews_a_SOURCES} ${libviews_qml_SOURCES})

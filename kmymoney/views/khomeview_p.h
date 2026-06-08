@@ -79,6 +79,7 @@
 
 #include "dashboardaccountsmodel.h"
 #include "homeviewbridge.h"
+#include "schedulesduemodel.h"
 #endif
 
 #define VIEW_LEDGER         "ledger"
@@ -127,6 +128,7 @@ public:
         , m_qmlView(nullptr)
         , m_bridge(nullptr)
         , m_dashboardModel(nullptr)
+        , m_schedulesModel(nullptr)
         , m_useQml(false)
 #endif
         , m_showAllSchedules(false)
@@ -233,6 +235,9 @@ public:
         m_dashboardModel = new DashboardAccountsModel(q);
         m_dashboardModel->setSourceModel(MyMoneyFile::instance()->accountsModel());
 
+        // Self-populating list of due schedules; refreshes itself on MyMoneyFile::dataChanged.
+        m_schedulesModel = new SchedulesDueModel(q);
+
         m_qmlView = new QQuickWidget(q);
         m_qmlView->setResizeMode(QQuickWidget::SizeRootObjectToView);
         // Avoid a white first-frame flash before Kirigami paints its themed background.
@@ -245,6 +250,7 @@ public:
         KLocalization::setupLocalizedContext(m_qmlView->engine());
         m_qmlView->rootContext()->setContextProperty(QStringLiteral("accountsModel"), m_dashboardModel);
         m_qmlView->rootContext()->setContextProperty(QStringLiteral("homeBridge"), m_bridge);
+        m_qmlView->rootContext()->setContextProperty(QStringLiteral("schedulesModel"), m_schedulesModel);
 
         m_qmlView->setSource(QUrl(QStringLiteral("qrc:/kmymoney/qml/home/Home.qml")));
         if (m_qmlView->status() == QQuickWidget::Error) {
@@ -256,6 +262,8 @@ public:
             m_qmlView = nullptr;
             delete m_dashboardModel;
             m_dashboardModel = nullptr;
+            delete m_schedulesModel;
+            m_schedulesModel = nullptr;
             delete m_bridge;
             m_bridge = nullptr;
             return false;
@@ -553,6 +561,12 @@ public:
                 m_bridge->setFileOpen(m_fileOpen);
                 m_bridge->refreshSummary();
             }
+            // Recompute due schedules on every show/refresh: the selection is
+            // date-relative, so it must be re-evaluated as time passes (the classic
+            // showScheduledPayments() does this on each render). The model also
+            // self-refreshes on dataChanged for live edits.
+            if (m_schedulesModel)
+                m_schedulesModel->refresh();
             return;
         }
 #endif
@@ -2087,6 +2101,7 @@ public:
     QQuickWidget* m_qmlView;
     HomeViewBridge* m_bridge;
     DashboardAccountsModel* m_dashboardModel;
+    SchedulesDueModel* m_schedulesModel;
     // True once the QML home view is (being) set up. Set BEFORE any QML widget is
     // created so a re-entrant loadView() (triggered by QQuickWidget's show cascade,
     // before m_qmlView is assigned) takes the QML branch instead of dereferencing the

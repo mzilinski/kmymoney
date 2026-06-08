@@ -86,6 +86,18 @@ void HomeViewBridge::openAccountLedger(const QString& accountId)
         m_view->triggerActionForBridge(eMenu::Action::GoToAccount, accountId);
 }
 
+void HomeViewBridge::enterSchedule(const QString& scheduleId)
+{
+    if (m_view && !scheduleId.isEmpty())
+        m_view->triggerActionForBridge(eMenu::Action::EnterSchedule, scheduleId);
+}
+
+void HomeViewBridge::skipSchedule(const QString& scheduleId)
+{
+    if (m_view && !scheduleId.isEmpty())
+        m_view->triggerActionForBridge(eMenu::Action::SkipSchedule, scheduleId);
+}
+
 QString HomeViewBridge::formatValue(double value) const
 {
     if (!m_fileOpen)

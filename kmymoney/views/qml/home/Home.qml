@@ -13,8 +13,9 @@ import org.kde.quickcharts.controls as ChartsControls
 // Experimental read-only Kirigami dashboard for the Home view (PoC). Loaded into a
 // bare QQuickWidget; ScrollablePage was confirmed to render correctly there without
 // an ApplicationWindow by the MR-B1 step-0 spike. Context properties provided by C++:
-//   homeBridge    - HomeViewBridge (net-worth text, fileOpen, navigation)
-//   accountsModel - DashboardAccountsModel (flat asset/liability accounts)
+//   homeBridge     - HomeViewBridge (net-worth text, fileOpen, navigation, enter/skip schedule)
+//   accountsModel  - DashboardAccountsModel (flat asset/liability accounts)
+//   schedulesModel - SchedulesDueModel (overdue + upcoming scheduled payments)
 Kirigami.ScrollablePage {
     id: root
     title: i18n("Home")
@@ -99,6 +100,52 @@ Kirigami.ScrollablePage {
                                                 : Kirigami.Theme.textColor
                     }
                     onClicked: homeBridge.openAccountLedger(model.accountId ?? "")
+                }
+            }
+        }
+
+        // ---- Scheduled payments due (overdue + within one month) ----
+        // schedulesModel.count is a real property (QAbstractItemModel::rowCount is a
+        // method, not bindable), so the whole card hides when nothing is due.
+        Kirigami.AbstractCard {
+            visible: homeBridge.fileOpen && schedulesModel.count > 0
+            Layout.fillWidth: true
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Heading { level: 3; text: i18n("Scheduled Payments Due") }
+
+                Repeater {
+                    model: schedulesModel
+                    delegate: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: (model.scheduleName ?? "")
+                                  + ((model.overdueCountText ?? "") !== "" ? " " + model.overdueCountText : "")
+                            // overdue schedules flagged on the name; the amount carries its own sign colour
+                            color: model.isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                        }
+                        QQC2.Label { text: model.accountName ?? ""; opacity: 0.7 }
+                        QQC2.Label { text: model.dueDateText ?? "" }
+                        QQC2.Label {
+                            text: model.amountText ?? ""
+                            color: model.isNegativeAmount ? Kirigami.Theme.negativeTextColor
+                                                          : Kirigami.Theme.textColor
+                        }
+                        QQC2.Button {
+                            text: i18n("Enter")
+                            icon.name: "go-next"
+                            onClicked: homeBridge.enterSchedule(model.scheduleId ?? "")
+                        }
+                        QQC2.Button {
+                            text: i18n("Skip")
+                            icon.name: "media-skip-forward"
+                            onClicked: homeBridge.skipSchedule(model.scheduleId ?? "")
+                        }
+                    }
                 }
             }
         }

@@ -29,8 +29,9 @@ class KHomeView;
  * a single navigation entry point to QML, and relays clicks back into the widget
  * world through @c KHomeView::triggerActionForBridge().
  *
- * Only the read-only essentials needed by MR1 are exposed; editing, schedules,
- * reports and charts are deliberately out of scope.
+ * Read-only summary plus the few navigation/actions the home dashboard needs
+ * (open a ledger, enter/skip a due schedule); general editing, reports and full
+ * schedule management remain out of scope.
  */
 class HomeViewBridge : public QObject
 {
@@ -54,10 +55,14 @@ public:
     double liabilitiesValue() const;
     bool fileOpen() const;
 
-    /// Opens the ledger of @p accountId (the only navigation MR1 needs).
+    /// Opens the ledger of @p accountId.
     Q_INVOKABLE void openAccountLedger(const QString& accountId);
     /// Formats a base-currency magnitude for display (used by the pie legend).
     Q_INVOKABLE QString formatValue(double value) const;
+    /// Records the next occurrence of schedule @p scheduleId (opens the enter dialog).
+    Q_INVOKABLE void enterSchedule(const QString& scheduleId);
+    /// Skips the next occurrence of schedule @p scheduleId.
+    Q_INVOKABLE void skipSchedule(const QString& scheduleId);
 
 public Q_SLOTS:
     /// Updates the welcome/dashboard state; called from the load/new/close paths.
