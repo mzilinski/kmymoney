@@ -2089,6 +2089,90 @@ void MyMoneyFileTest::testModifyTransactionAutoBalanceIdempotency()
     m->setAutoBalanceMode(false);
 }
 
+void MyMoneyFileTest::testReassignImbalanceToCategory()
+{
+    // LH-F-06: a transaction first parked on the imbalance account must be
+    // freely re-assignable to a "real" category later, without data loss.
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // a real expense category to move the booking onto later
+    MyMoneyAccount expense;
+    expense.setName(QStringLiteral("Groceries"));
+    expense.setAccountType(eMyMoney::Account::Type::Expense);
+    MyMoneyFileTransaction ft;
+    try {
+        MyMoneyAccount expenseParent = m->expense();
+        m->addAccount(expense, expenseParent);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    m->setAutoBalanceMode(true);
+
+    // add a single-split transaction; it gets parked on the imbalance account
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    t.setMemo(QStringLiteral("groceries payment"));
+    MyMoneySplit split1;
+    split1.setAccountId(QStringLiteral("A000001"));
+    split1.setMemo(QStringLiteral("asset side"));
+    split1.setShares(MyMoneyMoney(-1000, 100));
+    split1.setValue(MyMoneyMoney(-1000, 100));
+    t.addSplit(split1);
+
+    ft.restart();
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+    const auto imbAcc = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+    QCOMPARE(m->transaction(tid).splitCount(), static_cast<uint>(2));
+    QVERIFY(!m->transaction(tid).splitByAccount(imbAcc.id()).id().isEmpty());
+
+    // the user now assigns the auto-balance split to the real expense category
+    auto stored = m->transaction(tid);
+    auto imbSplit = stored.splitByAccount(imbAcc.id());
+    imbSplit.setAccountId(expense.id());
+    stored.modifySplit(imbSplit);
+
+    ft.restart();
+    try {
+        m->modifyTransaction(stored);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto modified = m->transaction(tid);
+    // still exactly two splits, balanced, and NO imbalance split remains
+    QCOMPARE(modified.splitCount(), static_cast<uint>(2));
+    QVERIFY(modified.splitSum().isZero());
+    bool hasImbalanceSplit = false;
+    const auto modifiedSplits = modified.splits();
+    for (const auto& s : modifiedSplits) {
+        if (s.accountId() == imbAcc.id())
+            hasImbalanceSplit = true;
+    }
+    QVERIFY(!hasImbalanceSplit);
+
+    // the booking now lives on the real category with the full amount ...
+    const auto catSplit = modified.splitByAccount(expense.id());
+    QCOMPARE(catSplit.value(), MyMoneyMoney(1000, 100));
+
+    // ... and the original asset side is untouched (no data loss)
+    const auto assetSplit = modified.splitByAccount(QStringLiteral("A000001"));
+    QCOMPARE(assetSplit.value(), MyMoneyMoney(-1000, 100));
+    QCOMPARE(assetSplit.memo(), QStringLiteral("asset side"));
+    QCOMPARE(modified.memo(), QStringLiteral("groceries payment"));
+
+    m->setAutoBalanceMode(false);
+}
+
 void MyMoneyFileTest::testAutoBalanceMultiCurrency()
 {
     setupBaseCurrency();
