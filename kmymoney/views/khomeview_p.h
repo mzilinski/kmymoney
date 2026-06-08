@@ -77,6 +77,7 @@
 
 #include <KLocalizedQmlContext>
 
+#include "accountallocationmodel.h"
 #include "dashboardaccountsmodel.h"
 #include "homeviewbridge.h"
 #include "schedulesduemodel.h"
@@ -129,6 +130,7 @@ public:
         , m_bridge(nullptr)
         , m_dashboardModel(nullptr)
         , m_schedulesModel(nullptr)
+        , m_allocationModel(nullptr)
         , m_useQml(false)
 #endif
         , m_showAllSchedules(false)
@@ -238,6 +240,9 @@ public:
         // Self-populating list of due schedules; refreshes itself on MyMoneyFile::dataChanged.
         m_schedulesModel = new SchedulesDueModel(q);
 
+        // Per-account base-currency magnitudes for the allocation pie; also self-refreshing.
+        m_allocationModel = new AccountAllocationModel(q);
+
         m_qmlView = new QQuickWidget(q);
         m_qmlView->setResizeMode(QQuickWidget::SizeRootObjectToView);
         // Avoid a white first-frame flash before Kirigami paints its themed background.
@@ -251,6 +256,7 @@ public:
         m_qmlView->rootContext()->setContextProperty(QStringLiteral("accountsModel"), m_dashboardModel);
         m_qmlView->rootContext()->setContextProperty(QStringLiteral("homeBridge"), m_bridge);
         m_qmlView->rootContext()->setContextProperty(QStringLiteral("schedulesModel"), m_schedulesModel);
+        m_qmlView->rootContext()->setContextProperty(QStringLiteral("accountAllocationModel"), m_allocationModel);
 
         m_qmlView->setSource(QUrl(QStringLiteral("qrc:/kmymoney/qml/home/Home.qml")));
         if (m_qmlView->status() == QQuickWidget::Error) {
@@ -264,6 +270,8 @@ public:
             m_dashboardModel = nullptr;
             delete m_schedulesModel;
             m_schedulesModel = nullptr;
+            delete m_allocationModel;
+            m_allocationModel = nullptr;
             delete m_bridge;
             m_bridge = nullptr;
             return false;
@@ -567,6 +575,10 @@ public:
             // (via slotSettingsChanged -> refresh), so the cards stay in sync with both.
             if (m_dashboardModel)
                 m_dashboardModel->updateSettings();
+            // Recompute the per-account allocation pie (same show/dataChanged/settings
+            // re-eval point; it also self-refreshes on dataChanged for live edits).
+            if (m_allocationModel)
+                m_allocationModel->refresh();
             // Recompute due schedules on every show/refresh: the selection is
             // date-relative, so it must be re-evaluated as time passes (the classic
             // showScheduledPayments() does this on each render). The model also
@@ -2108,6 +2120,7 @@ public:
     HomeViewBridge* m_bridge;
     DashboardAccountsModel* m_dashboardModel;
     SchedulesDueModel* m_schedulesModel;
+    AccountAllocationModel* m_allocationModel;
     // True once the QML home view is (being) set up. Set BEFORE any QML widget is
     // created so a re-entrant loadView() (triggered by QQuickWidget's show cascade,
     // before m_qmlView is assigned) takes the QML branch instead of dereferencing the

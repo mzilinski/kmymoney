@@ -79,6 +79,44 @@ Kirigami.ScrollablePage {
             }
         }
 
+        // ---- Per-account allocation pie ("where is my money") ----
+        // count is a real property (rowCount is a method); hide the card when nothing
+        // has a non-zero magnitude to draw.
+        Kirigami.AbstractCard {
+            visible: homeBridge.fileOpen && accountAllocationModel.count > 0
+            Layout.fillWidth: true
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Heading { level: 3; text: i18n("Account Allocation") }
+
+                Charts.PieChart {
+                    id: allocationPie
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 12
+                    valueSources: Charts.ModelSource {
+                        model: accountAllocationModel
+                        roleName: "allocationValue"
+                    }
+                    nameSource: Charts.ModelSource {
+                        model: accountAllocationModel
+                        roleName: "accountName"
+                    }
+                    // Theme-aware gradient of one colour per account; itemCount tracks the
+                    // model so the palette grows/shrinks with the number of wedges.
+                    colorSource: Charts.ColorGradientSource {
+                        baseColor: Kirigami.Theme.highlightColor
+                        itemCount: accountAllocationModel.count
+                    }
+                }
+
+                ChartsControls.Legend {
+                    Layout.fillWidth: true
+                    chart: allocationPie
+                    formatValue: (value) => homeBridge.formatValue(value)
+                }
+            }
+        }
+
         // ---- Account cards (asset/liability, non-closed, deduplicated) ----
         // accountsModel is already filtered to real accounts, so a flat Repeater is correct.
         Kirigami.CardsLayout {
