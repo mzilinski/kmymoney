@@ -154,34 +154,76 @@ Kirigami.ScrollablePage {
 
                 Repeater {
                     model: schedulesModel
-                    delegate: RowLayout {
+                    // Each schedule is a small column: the main row plus, for a transfer,
+                    // a second row for the counter account. Columns are only loosely
+                    // aligned via fillWidth (a dashboard card, not a strict table).
+                    delegate: ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Kirigami.Units.smallSpacing
+                        spacing: 0
 
-                        QQC2.Label {
+                        // ---- main account row ----
+                        RowLayout {
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            text: (model.scheduleName ?? "")
-                                  + ((model.overdueCountText ?? "") !== "" ? " " + model.overdueCountText : "")
-                            // overdue schedules flagged on the name; the amount carries its own sign colour
-                            color: model.isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                            spacing: Kirigami.Units.smallSpacing
+
+                            QQC2.Label {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: (model.scheduleName ?? "")
+                                      + ((model.overdueCountText ?? "") !== "" ? " " + model.overdueCountText : "")
+                                // overdue schedules flagged on the name; the amount carries its own sign colour
+                                color: model.isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                            }
+                            QQC2.Label { text: model.accountName ?? ""; opacity: 0.7 }
+                            QQC2.Label { text: model.dueDateText ?? "" }
+                            QQC2.Label {
+                                text: model.amountText ?? ""
+                                color: model.isNegativeAmount ? Kirigami.Theme.negativeTextColor
+                                                              : Kirigami.Theme.textColor
+                            }
+                            // projected balance after the payment, de-emphasised; the "→"
+                            // reads "results in" and disambiguates it from the amount.
+                            QQC2.Label {
+                                text: (model.balanceAfterText ?? "") !== "" ? "→ " + model.balanceAfterText : ""
+                                opacity: 0.7
+                                color: model.isNegativeBalanceAfter ? Kirigami.Theme.negativeTextColor
+                                                                    : Kirigami.Theme.textColor
+                            }
+                            QQC2.Button {
+                                text: i18n("Enter")
+                                icon.name: "go-next"
+                                onClicked: homeBridge.enterSchedule(model.scheduleId ?? "")
+                            }
+                            QQC2.Button {
+                                text: i18n("Skip")
+                                icon.name: "media-skip-forward"
+                                onClicked: homeBridge.skipSchedule(model.scheduleId ?? "")
+                            }
                         }
-                        QQC2.Label { text: model.accountName ?? ""; opacity: 0.7 }
-                        QQC2.Label { text: model.dueDateText ?? "" }
-                        QQC2.Label {
-                            text: model.amountText ?? ""
-                            color: model.isNegativeAmount ? Kirigami.Theme.negativeTextColor
-                                                          : Kirigami.Theme.textColor
-                        }
-                        QQC2.Button {
-                            text: i18n("Enter")
-                            icon.name: "go-next"
-                            onClicked: homeBridge.enterSchedule(model.scheduleId ?? "")
-                        }
-                        QQC2.Button {
-                            text: i18n("Skip")
-                            icon.name: "media-skip-forward"
-                            onClicked: homeBridge.skipSchedule(model.scheduleId ?? "")
+
+                        // ---- counter account row (transfers only) ----
+                        RowLayout {
+                            visible: model.isTransfer ?? false
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            QQC2.Label {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: model.counterAccountName ?? ""
+                                opacity: 0.7
+                            }
+                            QQC2.Label {
+                                text: model.counterAmountText ?? ""
+                                color: model.counterIsNegativeAmount ? Kirigami.Theme.negativeTextColor
+                                                                     : Kirigami.Theme.textColor
+                            }
+                            QQC2.Label {
+                                text: (model.counterBalanceAfterText ?? "") !== "" ? "→ " + model.counterBalanceAfterText : ""
+                                opacity: 0.7
+                                color: model.counterIsNegativeBalanceAfter ? Kirigami.Theme.negativeTextColor
+                                                                           : Kirigami.Theme.textColor
+                            }
                         }
                     }
                 }

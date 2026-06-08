@@ -61,43 +61,12 @@ void SchedulesDueModel::refresh()
 {
     beginResetModel();
     m_entries.clear();
+    // Invalidate the forecast and its per-(account,date) accumulator; both are recomputed
+    // lazily the first time a balance-after is needed during this refresh (see ensureForecast).
+    m_forecastDone = false;
+    m_balanceCache.clear();
 
     auto* file = MyMoneyFile::instance();
-
-    // Build one cache entry from a schedule's main split, reproducing the classic home
-    // view's showPaymentEntry() (upcoming section, single-row layout). Enums are fully
-    // qualified here (no file-level `using namespace eMyMoney`).
-    const auto buildEntry = [file](const MyMoneySchedule& sched, int cnt) -> Entry {
-        Entry e;
-        MyMoneyAccount mainAccount = sched.account();
-        if (mainAccount.id().isEmpty())
-            return e; // empty id => caller skips this schedule
-        MyMoneyTransaction t = sched.transaction();
-        if (sched.type() == eMyMoney::Schedule::Type::LoanPayment) {
-            // adjust the local copy so it carries the actual next-payment amounts
-            KMyMoneyUtils::calculateAutoLoan(sched, t, QMap<QString, MyMoneyMoney>());
-        }
-
-        const auto currency = file->currency(mainAccount.currencyId());
-        MyMoneyMoney payment;
-        const auto splits = t.splits();
-        for (const auto& split : splits) {
-            if (split.accountId() == mainAccount.id()) {
-                payment = split.value(t.commodity(), currency.id()) * cnt;
-                break;
-            }
-        }
-
-        e.id = sched.id();
-        e.name = sched.name();
-        e.accountName = mainAccount.name();
-        e.dueDateText = MyMoneyUtils::formatDate(sched.adjustedNextDueDate());
-        e.amountText = MyMoneyUtils::formatMoney(payment, mainAccount, currency);
-        e.isOverdue = sched.isOverdue();
-        e.isNegativeAmount = payment.isNegative();
-        e.overdueCountText = (cnt > 1) ? i18np("(%1 payment)", "(%1 payments)", cnt) : QString();
-        return e;
-    };
 
     // Same two queries as showScheduledPayments(): all overdue schedules, then the ones
     // due within one month (the preview window is hardcoded there too). scheduleList()
@@ -176,6 +145,116 @@ void SchedulesDueModel::refresh()
     Q_EMIT countChanged();
 }
 
+SchedulesDueModel::Entry SchedulesDueModel::buildEntry(const MyMoneySchedule& sched, int cnt)
+{
+    auto* file = MyMoneyFile::instance();
+    Entry e;
+
+    MyMoneyAccount mainAccount = sched.account();
+    if (mainAccount.id().isEmpty())
+        return e; // empty id => caller skips this schedule
+
+    MyMoneyTransaction t = sched.transaction();
+    if (sched.type() == eMyMoney::Schedule::Type::LoanPayment) {
+        // adjust the local copy so it carries the actual next-payment amounts
+        KMyMoneyUtils::calculateAutoLoan(sched, t, QMap<QString, MyMoneyMoney>());
+    }
+
+    // Resolve each split's account once (mirrors showPaymentEntry()). A throwing account()
+    // lookup propagates to refresh()'s per-schedule try/catch, skipping just this schedule.
+    const auto splits = t.splits();
+    QVector<MyMoneyAccount> accounts;
+    accounts.reserve(splits.size());
+    for (const auto& sp : splits)
+        accounts.append(file->account(sp.accountId()));
+
+    // A transfer is exactly two asset/liability splits; then both sides are shown.
+    const bool isTransfer = (splits.count() == 2) && (accounts.count() == 2) && accounts.at(0).isAssetLiability() && accounts.at(1).isAssetLiability();
+
+    // Locate the main split (the one on sched.account()).
+    int mainIdx = -1;
+    for (int i = 0; i < splits.size(); ++i) {
+        if (splits.at(i).accountId() == mainAccount.id()) {
+            mainIdx = i;
+            break;
+        }
+    }
+    if (mainIdx < 0)
+        return e; // no split on the main account => skip
+
+    const QDate dueDate = sched.adjustedNextDueDate();
+
+    // Amount (scaled by the overdue count) and formatting for one split index, each in its
+    // own account's currency (transfers between differing currencies format independently).
+    const auto amountOf = [&](int i) -> MyMoneyMoney {
+        const auto currency = file->currency(accounts.at(i).currencyId());
+        return splits.at(i).value(t.commodity(), currency.id()) * cnt;
+    };
+    const auto formatFor = [&](int i, const MyMoneyMoney& amount) -> QString {
+        return MyMoneyUtils::formatMoney(amount, accounts.at(i), file->currency(accounts.at(i).currencyId()));
+    };
+
+    const MyMoneyMoney mainAmount = amountOf(mainIdx);
+    const MyMoneyMoney mainBalanceAfter = forecastPaymentBalance(accounts.at(mainIdx), mainAmount, dueDate);
+
+    e.id = sched.id();
+    e.name = sched.name();
+    e.accountName = accounts.at(mainIdx).name();
+    e.dueDateText = MyMoneyUtils::formatDate(dueDate);
+    e.amountText = formatFor(mainIdx, mainAmount);
+    e.isOverdue = sched.isOverdue();
+    e.isNegativeAmount = mainAmount.isNegative();
+    e.overdueCountText = (cnt > 1) ? i18np("(%1 payment)", "(%1 payments)", cnt) : QString();
+    e.balanceAfterText = formatFor(mainIdx, mainBalanceAfter);
+    e.isNegativeBalanceAfter = mainBalanceAfter.isNegative();
+
+    if (isTransfer) {
+        const int counterIdx = mainIdx ^ 1; // 0<->1, valid because there are exactly two splits
+        const MyMoneyMoney counterAmount = amountOf(counterIdx);
+        const MyMoneyMoney counterBalanceAfter = forecastPaymentBalance(accounts.at(counterIdx), counterAmount, dueDate);
+        e.isTransfer = true;
+        e.counterAccountName = accounts.at(counterIdx).name();
+        e.counterAmountText = formatFor(counterIdx, counterAmount);
+        e.counterIsNegativeAmount = counterAmount.isNegative();
+        e.counterBalanceAfterText = formatFor(counterIdx, counterBalanceAfter);
+        e.counterIsNegativeBalanceAfter = counterBalanceAfter.isNegative();
+    }
+    return e;
+}
+
+void SchedulesDueModel::ensureForecast()
+{
+    if (m_forecastDone)
+        return;
+    // Same setup as KHomeViewPrivate::doForecast(): build from the user's forecast config
+    // and make sure the forecast window spans at least one accounts cycle.
+    m_forecast = MyMoneyForecast::fromConfig(KMyMoneyUtils::forecastConfig());
+    if (m_forecast.accountsCycle() > m_forecast.forecastDays())
+        m_forecast.setForecastDays(m_forecast.accountsCycle());
+    m_forecast.doForecast();
+    m_forecastDone = true;
+}
+
+MyMoneyMoney SchedulesDueModel::forecastPaymentBalance(const MyMoneyAccount& acc, const MyMoneyMoney& payment, QDate paymentDate)
+{
+    ensureForecast();
+
+    // Mirrors KHomeViewPrivate::forecastPaymentBalance(): accumulate successive payments
+    // per (account, date) so several due payments to the same account stack correctly.
+    if (paymentDate <= QDate::currentDate())
+        paymentDate = QDate::currentDate().addDays(1);
+
+    auto& dateMap = m_balanceCache[acc.id()];
+    if (!dateMap.contains(paymentDate)) {
+        if (paymentDate == QDate::currentDate())
+            dateMap[paymentDate] = m_forecast.forecastBalance(acc, paymentDate);
+        else
+            dateMap[paymentDate] = m_forecast.forecastBalance(acc, paymentDate.addDays(-1));
+    }
+    dateMap[paymentDate] += payment;
+    return dateMap[paymentDate];
+}
+
 QVariant SchedulesDueModel::data(const QModelIndex& index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.size())
@@ -198,6 +277,22 @@ QVariant SchedulesDueModel::data(const QModelIndex& index, int role) const
         return e.isNegativeAmount;
     case OverdueCountTextRole:
         return e.overdueCountText;
+    case BalanceAfterTextRole:
+        return e.balanceAfterText;
+    case IsNegativeBalanceAfterRole:
+        return e.isNegativeBalanceAfter;
+    case IsTransferRole:
+        return e.isTransfer;
+    case CounterAccountNameRole:
+        return e.counterAccountName;
+    case CounterAmountTextRole:
+        return e.counterAmountText;
+    case CounterIsNegativeAmountRole:
+        return e.counterIsNegativeAmount;
+    case CounterBalanceAfterTextRole:
+        return e.counterBalanceAfterText;
+    case CounterIsNegativeBalanceAfterRole:
+        return e.counterIsNegativeBalanceAfter;
     default:
         return {};
     }
@@ -214,6 +309,14 @@ QHash<int, QByteArray> SchedulesDueModel::roleNames() const
         {IsOverdueRole, "isOverdue"},
         {IsNegativeAmountRole, "isNegativeAmount"},
         {OverdueCountTextRole, "overdueCountText"},
+        {BalanceAfterTextRole, "balanceAfterText"},
+        {IsNegativeBalanceAfterRole, "isNegativeBalanceAfter"},
+        {IsTransferRole, "isTransfer"},
+        {CounterAccountNameRole, "counterAccountName"},
+        {CounterAmountTextRole, "counterAmountText"},
+        {CounterIsNegativeAmountRole, "counterIsNegativeAmount"},
+        {CounterBalanceAfterTextRole, "counterBalanceAfterText"},
+        {CounterIsNegativeBalanceAfterRole, "counterIsNegativeBalanceAfter"},
     };
 }
 
