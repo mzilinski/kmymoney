@@ -129,13 +129,25 @@ Kirigami.ScrollablePage {
                     // The card navigates on click, so show hover/press affordance
                     // (showClickFeedback also enables hoverEnabled on AbstractCard).
                     showClickFeedback: true
-                    // ?? guards against the transient [undefined] a Repeater delegate sees
-                    // while the model is still being populated (roles not yet mapped).
-                    banner.title: model.accountName ?? ""
-                    contentItem: QQC2.Label {
-                        text: model.balanceText ?? ""
-                        color: model.isNegative ? Kirigami.Theme.negativeTextColor
-                                                : Kirigami.Theme.textColor
+                    // Name + balance live in the contentItem rather than banner.title:
+                    // a bare-Label contentItem under a banner collapsed to zero height,
+                    // hiding the balance. A ColumnLayout contentItem (as the other cards
+                    // use) lays both out reliably. ?? guards the transient [undefined] a
+                    // Repeater delegate sees while the model is still being populated.
+                    contentItem: ColumnLayout {
+                        spacing: Kirigami.Units.smallSpacing
+                        Kirigami.Heading {
+                            level: 4
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: model.accountName ?? ""
+                        }
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: model.balanceText ?? ""
+                            color: model.isNegative ? Kirigami.Theme.negativeTextColor
+                                                    : Kirigami.Theme.textColor
+                        }
                     }
                     onClicked: homeBridge.openAccountLedger(model.accountId ?? "")
                 }

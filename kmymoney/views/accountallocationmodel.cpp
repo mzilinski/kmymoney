@@ -20,6 +20,7 @@
 // ----------------------------------------------------------------------------
 // Project Includes
 
+#include "accountsmodel.h"
 #include "kmymoneysettings.h"
 #include "mymoneyaccount.h"
 #include "mymoneyexception.h"
@@ -32,6 +33,11 @@ AccountAllocationModel::AccountAllocationModel(QObject* parent)
     : QAbstractListModel(parent)
 {
     connect(MyMoneyFile::instance(), &MyMoneyFile::dataChanged, this, &AccountAllocationModel::refresh);
+    // Per-account balances are filled asynchronously after the file loads and that path
+    // only emits netWorthChanged (not MyMoneyFile::dataChanged), so without this the pie
+    // would keep the empty/zero state it computed at startup. file->balance() returns the
+    // freshly computed totals once this fires.
+    connect(MyMoneyFile::instance()->accountsModel(), &AccountsModel::netWorthChanged, this, &AccountAllocationModel::refresh);
     refresh();
 }
 

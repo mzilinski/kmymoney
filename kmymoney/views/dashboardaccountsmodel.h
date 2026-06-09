@@ -65,6 +65,12 @@ public:
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
 
+private Q_SLOTS:
+    /// Re-runs the filter and re-emits dataChanged for the balance roles when the engine
+    /// finishes computing per-account balances (AccountsModel::netWorthChanged), so the
+    /// cards pick up the balances filled in asynchronously after the file loads.
+    void refreshBalances();
+
 private:
     bool isDescendantOf(const QModelIndex& index, const QModelIndex& ancestor) const;
 
