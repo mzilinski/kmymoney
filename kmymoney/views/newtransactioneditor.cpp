@@ -264,7 +264,9 @@ bool NewTransactionEditor::Private::checkForValidAmount()
             if (!m_simpleMode) {
                 WidgetHintFrame::show(ui->categoryCombo, i18nc("@info:tooltip", "The transaction is missing a category assignment."));
             }
-        } else if (!hasCalculatedSplit()) {
+        } else if (!m_simpleMode && !hasCalculatedSplit()) {
+            // In simplified mode a partial split set is intentional (the engine balances the
+            // residual to the imbalance account), so do not nag about the difference.
             WidgetHintFrame::show(
                 ui->creditDebitEdit,
                 i18nc("@info:tooltip", "The amount entered is different from the sum of all splits by %1.", difference.formatMoney(m_account.fraction())));
@@ -798,14 +800,16 @@ MyMoneyMoney NewTransactionEditor::Private::splitsSum() const
 
 int NewTransactionEditor::Private::editSplits()
 {
-    // In simplified mode the split editor is not offered; an under-specified
-    // transaction is balanced automatically by the engine.
-    if (m_simpleMode)
-        return QDialog::Rejected;
-
     const auto transactionFactor(ui->creditDebitEdit->value().isNegative() ? MyMoneyMoney::ONE : MyMoneyMoney::MINUS_ONE);
 
     SplitModel dlgSplitModel(q, nullptr, splitModel);
+
+    // In simplified mode the splits are entered as a single signed "Amount" per category
+    // (no Soll/Haben). Push the flag straight onto the working engine model we hold (rather
+    // than through the dialog->view, which runs before setModel()); the dialog's view side
+    // is switched on separately below, before setModel().
+    if (m_simpleMode)
+        dlgSplitModel.setSingleAmountColumn(true);
 
     // create an empty split at the end
     // used to create new splits, but only
@@ -829,6 +833,9 @@ int NewTransactionEditor::Private::editSplits()
     QPointer<SplitDialog> splitDialog = new SplitDialog(commodity, -(q->transactionAmount()), m_account.fraction(), transactionFactor, q);
     const auto payeeId = payeesModel->index(ui->payeeEdit->currentIndex(), 0).data(eMyMoney::Model::IdRole).toString();
     splitDialog->setTransactionPayeeId(payeeId);
+    // Single signed "Amount" column instead of Payment/Deposit (must precede setModel()).
+    if (m_simpleMode)
+        splitDialog->setSingleAmountMode(true);
     splitDialog->setModel(&dlgSplitModel);
     splitDialog->setReadOnly(q->isReadOnly());
 
@@ -1867,8 +1874,9 @@ void NewTransactionEditor::setShowButtons(bool show) const
 void NewTransactionEditor::setSimpleMode(bool simpleMode) const
 {
     d->m_simpleMode = simpleMode;
-    // hide the affordance that opens the split editor on the category combo
-    d->ui->categoryCombo->setSplitActionVisible(!simpleMode);
+    // The split editor is available in both modes (LH-F-16: in simplified mode it shows a
+    // single signed "Amount" per category instead of Soll/Haben), so keep the affordance.
+    d->ui->categoryCombo->setSplitActionVisible(true);
 }
 
 bool NewTransactionEditor::isSimpleMode() const

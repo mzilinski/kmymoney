@@ -49,6 +49,14 @@ public:
     void setReadOnly(bool readOnly);
 
     /**
+     * Simplified single-amount mode (LH-F-16): the split table shows one signed "Amount"
+     * column instead of Payment/Deposit, and accept() skips the Soll/Haben adjust dialog
+     * for a partial split set (the engine auto-balances the residual). Must be called
+     * BEFORE setModel(). Default off == classic behavior.
+     */
+    void setSingleAmountMode(bool enable);
+
+    /**
      * Returns the amount for the transaction.
      */
     MyMoneyMoney transactionAmount() const;

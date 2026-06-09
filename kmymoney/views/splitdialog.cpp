@@ -81,6 +81,7 @@ public:
     MyMoneySecurity commodity;
     QString transactionPayeeId;
     bool readOnly;
+    bool singleAmount = false;
 };
 
 static const int SumRow = 0;
@@ -226,6 +227,10 @@ void SplitDialog::accept()
     if (d->transactionTotal.isAutoCalc()) {
         d->transactionTotal = d->splitsTotal;
 
+    } else if (d->singleAmount) {
+        // Simplified (LH-F-16) mode: a partial split set is intentional — keep the full
+        // transaction amount and let the engine auto-balance the residual to the imbalance
+        // account, without confronting the user with the Soll/Haben adjust dialog.
     } else if (d->transactionTotal != d->splitsTotal) {
         QPointer<SplitAdjustDialog> dlg = new SplitAdjustDialog(this);
         dlg->setValues(d->ui->summaryView->item(AmountRow, ValueCol)->data(Qt::DisplayRole).toString(),
@@ -265,6 +270,15 @@ void SplitDialog::enableButtons()
 void SplitDialog::disableButtons()
 {
     d->ui->buttonContainer->setEnabled(false);
+}
+
+void SplitDialog::setSingleAmountMode(bool enable)
+{
+    // Forward to the view (hides Deposit, repurposes Payment as the signed Amount column,
+    // skips the residual prefill). Must run before setModel() so the view's ColumnSelector
+    // is rebuilt under its own config group first.
+    d->singleAmount = enable;
+    d->ui->splitView->setSingleAmountColumn(enable);
 }
 
 void SplitDialog::setModel(SplitModel* model)

@@ -216,6 +216,7 @@ public:
     bool rightMouseButtonPress;
     bool readOnly;
     ColumnSelector* columnSelector;
+    bool singleAmount = false;
 };
 
 
@@ -306,6 +307,21 @@ void SplitView::setColumnsShown(QVector<int> columns)
     d->columnSelector->setAlwaysVisible(columns);
 }
 
+void SplitView::setSingleAmountColumn(bool enable)
+{
+    d->singleAmount = enable;
+    if (enable) {
+        // Recreate the ColumnSelector under a DISTINCT persisted group so hiding the Deposit
+        // column here is never written back to the classic "SplitEditor" group (the selector
+        // saves header state to its group on destruction). The Payment column carries the
+        // signed "Amount"; Deposit is always hidden.
+        delete d->columnSelector;
+        d->columnSelector = new ColumnSelector(this, QStringLiteral("SplitEditorSimple"));
+        d->columnSelector->setAlwaysHidden(QVector<int>({SplitModel::Column::Invisible, SplitModel::Column::Deposit}));
+        d->columnSelector->setAlwaysVisible(QVector<int>({SplitModel::Column::Category, SplitModel::Column::Tags, SplitModel::Column::Payment}));
+    }
+}
+
 bool SplitView::edit(const QModelIndex& index, QAbstractItemView::EditTrigger trigger, QEvent* event)
 {
     bool rc = QTableView::edit(index, trigger, event);
@@ -322,7 +338,10 @@ bool SplitView::edit(const QModelIndex& index, QAbstractItemView::EditTrigger tr
         if(!haveEditorInOtherView) {
             Q_EMIT aboutToStartEdit();
 
-            if (index.data(eMyMoney::Model::SplitIsNewRole).toBool()) {
+            // In single-amount mode a new split starts at zero (partial splits are allowed;
+            // the engine auto-balances the residual to the imbalance account); the classic
+            // editor pre-fills it with the whole unassigned amount.
+            if (!d->singleAmount && index.data(eMyMoney::Model::SplitIsNewRole).toBool()) {
                 d->setupUnassignedValue(index);
             }
             setSpan(index.row(), 0, 1, horizontalHeader()->count());

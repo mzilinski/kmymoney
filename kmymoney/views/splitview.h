@@ -49,6 +49,16 @@ public:
     void setColumnsHidden(QVector<int> columns);
     void setColumnsShown(QVector<int> columns);
 
+    /**
+     * Simplified single-amount mode (LH-F-16): hide the Deposit column so only the signed
+     * "Amount" (Payment) column remains, and stop pre-filling a new split with the
+     * unassigned residual (so splits can be partial; the engine auto-balances the rest).
+     * A separate persisted column config is used so this never bleeds into the classic
+     * split editor. Must be called BEFORE setModel(). The model's own single-amount flag is
+     * pushed in separately by the caller. Default off == classic behavior.
+     */
+    void setSingleAmountColumn(bool enable);
+
     void setModel(QAbstractItemModel * model) override;
 
     void setCommodity(const MyMoneySecurity& commodity);
