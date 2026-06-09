@@ -71,15 +71,25 @@
 #include "plugins/views/reports/reportsviewenums.h"
 
 #ifdef ENABLE_QML_HOME
+#include <algorithm>
+
+#include <QImage>
+#include <QPageLayout>
+#include <QPainter>
+#include <QPrintPreviewDialog>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QQuickWidget>
+#include <QSharedPointer>
 
 #include <KLocalizedQmlContext>
 
 #include "accountallocationmodel.h"
 #include "dashboardaccountsmodel.h"
 #include "homeviewbridge.h"
+#include "kmm_printer.h"
 #include "schedulesduemodel.h"
 #endif
 
@@ -280,6 +290,123 @@ public:
         vbox->addWidget(m_qmlView);
         m_focusWidget = m_qmlView;
         return true;
+    }
+
+    // ---- printing the QML dashboard (MR-B7) --------------------------------------
+    // The classic path uses QTextBrowser::print(); in QML mode there is no QTextBrowser,
+    // so we rasterize the FULL dashboard via QQuickItem::grabToImage() — which renders the
+    // item subtree off-screen at an arbitrary target size, independent of the (smaller)
+    // on-screen viewport — and tile that image across the printer pages. The dashboard's
+    // Repeaters are eager (not virtualized), so every card/row has live scene-graph nodes
+    // and the grab is complete regardless of scroll position; a naive
+    // QQuickWidget::grabFramebuffer() would capture only the visible viewport.
+
+    /// The full-content root of the dashboard (the Home.qml ColumnLayout carrying
+    /// objectName "homeContent"). Null until the QML has loaded.
+    QQuickItem* qmlContentItem() const
+    {
+        if (!m_qmlView || !m_qmlView->rootObject())
+            return nullptr;
+        return m_qmlView->rootObject()->findChild<QQuickItem*>(QStringLiteral("homeContent"));
+    }
+
+    void printQmlUnavailable()
+    {
+        Q_Q(KHomeView);
+        KMessageBox::information(q, i18n("The Home view content could not be prepared for printing."), i18n("Print Home View"));
+    }
+
+    /// Fit-to-page-width, then tile the (oversampled) dashboard image down the pages.
+    void paintImagePaged(QPrinter* printer, const QImage& image)
+    {
+        if (image.isNull())
+            return;
+        QPainter painter;
+        if (!painter.begin(printer))
+            return;
+        const QRect pageRect = printer->pageLayout().paintRectPixels(printer->resolution());
+        if (pageRect.width() > 0 && pageRect.height() > 0) {
+            // One scale fits the image width onto the page width; the same scale maps a
+            // band of source rows onto the page height (so each page is a horizontal slice).
+            const double scale = double(pageRect.width()) / image.width();
+            const int srcRowsPerPage = std::max(1, int(std::floor(pageRect.height() / scale)));
+            for (int top = 0, page = 0; top < image.height(); top += srcRowsPerPage, ++page) {
+                if (page > 0)
+                    printer->newPage();
+                // opaque white page so a dark-theme dashboard stays legible on paper.
+                painter.fillRect(pageRect, Qt::white);
+                const QRect srcRect(0, top, image.width(), std::min(srcRowsPerPage, image.height() - top));
+                const QRect destRect(pageRect.left(), pageRect.top(), qRound(srcRect.width() * scale), qRound(srcRect.height() * scale));
+                painter.drawImage(destRect, image, srcRect);
+            }
+        }
+        painter.end();
+    }
+
+    void printQmlImage(const QImage& image)
+    {
+        if (image.isNull()) {
+            printQmlUnavailable();
+            return;
+        }
+        auto* printer = KMyMoneyPrinter::startPrint();
+        if (printer)
+            paintImagePaged(printer, image);
+    }
+
+    void previewQmlImage(const QImage& image)
+    {
+        Q_Q(KHomeView);
+        if (image.isNull()) {
+            printQmlUnavailable();
+            return;
+        }
+        QPrintPreviewDialog dlg(KMyMoneyPrinter::instance(), q);
+        QObject::connect(&dlg, &QPrintPreviewDialog::paintRequested, q, [this, image](QPrinter* printer) {
+            // paintRequested fires repeatedly (zoom/page nav); always re-blit the cached
+            // image, never re-grab.
+            paintImagePaged(printer, image);
+        });
+        dlg.exec();
+    }
+
+    /// Entry point from slotPrintView()/slotPrintPreviewView() in QML mode. grabToImage()
+    /// is asynchronous, so the print/preview is driven from its ready() callback.
+    void printQml(bool preview)
+    {
+        Q_Q(KHomeView);
+        if (!m_fileOpen)
+            return; // welcome placeholder only — nothing to print
+        QQuickItem* content = qmlContentItem();
+        if (!content || content->width() < 1.0 || content->height() < 1.0) {
+            printQmlUnavailable();
+            return;
+        }
+        // Oversample for crisp output; clamp the target against a conservative
+        // GL_MAX_TEXTURE_SIZE so the grab does not fail on a tall dashboard. If even 1:1
+        // exceeds the cap, give up cleanly (the scroll-and-stitch path is deferred).
+        constexpr double kMaxDim = 8192.0;
+        const double factor = std::min({2.0, kMaxDim / content->width(), kMaxDim / content->height()});
+        if (factor < 1.0) {
+            printQmlUnavailable();
+            return;
+        }
+        const QSize target(qRound(content->width() * factor), qRound(content->height() * factor));
+        const QSharedPointer<QQuickItemGrabResult> grab = content->grabToImage(target);
+        if (!grab) {
+            printQmlUnavailable();
+            return;
+        }
+        // Capture the QSharedPointer by value so the result outlives this scope until
+        // ready() fires. Print is only reachable on the visible Home view, so the render
+        // loop is active and ready() will fire (no timeout fallback in this PoC).
+        QObject::connect(grab.data(), &QQuickItemGrabResult::ready, q, [this, grab, preview]() {
+            const QImage image = grab->image();
+            if (preview)
+                previewQmlImage(image);
+            else
+                printQmlImage(image);
+        });
     }
 #endif
 
@@ -568,6 +695,9 @@ public:
             if (m_bridge) {
                 m_bridge->setFileOpen(m_fileOpen);
                 m_bridge->refreshSummary();
+                // Re-read the home-page ItemList so hiding/showing a section in
+                // Settings ▸ Home page takes effect here too (same settings re-eval point).
+                m_bridge->refreshSections();
             }
             // Re-apply the home-view account preferences (hide-zero-balance / show-all)
             // and re-filter. This is the single settings/balance-relative re-eval point,

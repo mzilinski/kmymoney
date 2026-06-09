@@ -8,10 +8,16 @@
 #ifdef ENABLE_QML_HOME
 
 // ----------------------------------------------------------------------------
+// QT Includes
+
+#include <QSet>
+
+// ----------------------------------------------------------------------------
 // Project Includes
 
 #include "accountsmodel.h"
 #include "khomeview.h"
+#include "kmymoneysettings.h"
 #include "menuenums.h"
 #include "mymoneyenums.h"
 #include "mymoneyexception.h"
@@ -132,6 +138,48 @@ void HomeViewBridge::refreshSummary()
     m_liabilities = model->liabilityIndex().data(eMyMoney::Model::AccountTotalValueRole).value<MyMoneyMoney>();
     m_netWorth = m_assets + m_liabilities;
     Q_EMIT summaryChanged();
+}
+
+bool HomeViewBridge::showScheduledPayments() const
+{
+    return m_showScheduledPayments;
+}
+
+bool HomeViewBridge::showAccounts() const
+{
+    return m_showAccounts;
+}
+
+bool HomeViewBridge::showAssetsLiabilities() const
+{
+    return m_showAssetsLiabilities;
+}
+
+void HomeViewBridge::refreshSections()
+{
+    // listOfItems() returns the classic home-page items; a hidden item is encoded as a
+    // negative code (e.g. "-8"), a shown one as its positive code. Collect the shown codes
+    // and map the three that have a QML counterpart. Codes without a QML section
+    // (4 reports, 5/7 forecast, 6 net-worth line graph, 9 budget, 10 cash flow) are ignored.
+    QSet<int> shown;
+    const auto items = KMyMoneySettings::listOfItems();
+    for (const auto& item : items) {
+        const int code = item.toInt();
+        if (code > 0)
+            shown.insert(code);
+    }
+
+    const bool schedules = shown.contains(1);
+    const bool accounts = shown.contains(2) || shown.contains(3);
+    const bool assetsLiabilities = shown.contains(8);
+
+    if (schedules == m_showScheduledPayments && accounts == m_showAccounts && assetsLiabilities == m_showAssetsLiabilities)
+        return;
+
+    m_showScheduledPayments = schedules;
+    m_showAccounts = accounts;
+    m_showAssetsLiabilities = assetsLiabilities;
+    Q_EMIT sectionsChanged();
 }
 
 #endif // ENABLE_QML_HOME

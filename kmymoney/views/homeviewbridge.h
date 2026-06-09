@@ -44,6 +44,15 @@ class HomeViewBridge : public QObject
     Q_PROPERTY(double assetsValue READ assetsValue NOTIFY summaryChanged)
     Q_PROPERTY(double liabilitiesValue READ liabilitiesValue NOTIFY summaryChanged)
     Q_PROPERTY(bool fileOpen READ fileOpen NOTIFY fileOpenChanged)
+    // Per-section visibility derived from the classic home-page ItemList preference
+    // (KMyMoneySettings::listOfItems()), so hiding a section in Settings ▸ Home page also
+    // hides it here. Only the three classic codes that have a QML counterpart are honored:
+    // 1 = scheduled payments, 2|3 = accounts, 8 = assets & liabilities (which gates both the
+    // net-worth header and the assets-vs-liabilities pie). The QML-only Account Allocation
+    // pie has no classic code and stays always-on. Order is NOT honored (fixed layout).
+    Q_PROPERTY(bool showScheduledPayments READ showScheduledPayments NOTIFY sectionsChanged)
+    Q_PROPERTY(bool showAccounts READ showAccounts NOTIFY sectionsChanged)
+    Q_PROPERTY(bool showAssetsLiabilities READ showAssetsLiabilities NOTIFY sectionsChanged)
 
 public:
     explicit HomeViewBridge(KHomeView* view, QObject* parent = nullptr);
@@ -54,6 +63,9 @@ public:
     double assetsValue() const;
     double liabilitiesValue() const;
     bool fileOpen() const;
+    bool showScheduledPayments() const;
+    bool showAccounts() const;
+    bool showAssetsLiabilities() const;
 
     /// Opens the ledger of @p accountId.
     Q_INVOKABLE void openAccountLedger(const QString& accountId);
@@ -69,10 +81,15 @@ public Q_SLOTS:
     void setFileOpen(bool open);
     /// Recomputes the net-worth aggregates from the engine accounts model.
     void refreshSummary();
+    /// Re-reads the home-page ItemList preference and updates the per-section visibility
+    /// flags. Called from the home view's load path (separate from refreshSummary(), which
+    /// also fires on every balance change and must not re-parse the settings each time).
+    void refreshSections();
 
 Q_SIGNALS:
     void summaryChanged();
     void fileOpenChanged();
+    void sectionsChanged();
 
 private:
     KHomeView* m_view;
@@ -80,6 +97,9 @@ private:
     MyMoneyMoney m_assets;
     MyMoneyMoney m_liabilities;
     MyMoneyMoney m_netWorth;
+    bool m_showScheduledPayments = true;
+    bool m_showAccounts = true;
+    bool m_showAssetsLiabilities = true;
 };
 
 #endif // ENABLE_QML_HOME

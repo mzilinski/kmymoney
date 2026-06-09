@@ -21,6 +21,10 @@ Kirigami.ScrollablePage {
     title: i18n("Home")
 
     ColumnLayout {
+        // Full-content root: C++ (KHomeViewPrivate::printQml) resolves this by objectName
+        // and grabToImage()s it for printing — its implicitHeight spans all sections, so
+        // print captures the whole dashboard, not just the visible viewport.
+        objectName: "homeContent"
         spacing: Kirigami.Units.largeSpacing
 
         // ---- Welcome / empty state ----
@@ -34,8 +38,10 @@ Kirigami.ScrollablePage {
         }
 
         // ---- Net-worth header (text) ----
+        // Gated by the classic "Assets & Liabilities" home-page item (ItemList code 8);
+        // the classic net-worth graph (code 6) has no QML counterpart so it is not mapped.
         Kirigami.AbstractCard {
-            visible: homeBridge.fileOpen
+            visible: homeBridge.fileOpen && homeBridge.showAssetsLiabilities
             Layout.fillWidth: true
             contentItem: ColumnLayout {
                 Kirigami.Heading {
@@ -49,7 +55,7 @@ Kirigami.ScrollablePage {
 
         // ---- Net-worth pie (assets vs. liabilities, magnitude-based) ----
         Kirigami.AbstractCard {
-            visible: homeBridge.fileOpen
+            visible: homeBridge.fileOpen && homeBridge.showAssetsLiabilities
             Layout.fillWidth: true
             contentItem: ColumnLayout {
                 spacing: Kirigami.Units.smallSpacing
@@ -81,7 +87,8 @@ Kirigami.ScrollablePage {
 
         // ---- Per-account allocation pie ("where is my money") ----
         // count is a real property (rowCount is a method); hide the card when nothing
-        // has a non-zero magnitude to draw.
+        // has a non-zero magnitude to draw. QML-only section: it has no classic home-page
+        // ItemList code, so it is always shown (subject only to its own count self-gate).
         Kirigami.AbstractCard {
             visible: homeBridge.fileOpen && accountAllocationModel.count > 0
             Layout.fillWidth: true
@@ -119,8 +126,9 @@ Kirigami.ScrollablePage {
 
         // ---- Account cards (asset/liability, non-closed, deduplicated) ----
         // accountsModel is already filtered to real accounts, so a flat Repeater is correct.
+        // Gated by the classic "Preferred/Payment Accounts" home-page items (codes 2|3).
         Kirigami.CardsLayout {
-            visible: homeBridge.fileOpen
+            visible: homeBridge.fileOpen && homeBridge.showAccounts
             Layout.fillWidth: true
 
             Repeater {
@@ -157,8 +165,9 @@ Kirigami.ScrollablePage {
         // ---- Scheduled payments due (overdue + within one month) ----
         // schedulesModel.count is a real property (QAbstractItemModel::rowCount is a
         // method, not bindable), so the whole card hides when nothing is due.
+        // Gated by the classic "Scheduled Payments" home-page item (ItemList code 1).
         Kirigami.AbstractCard {
-            visible: homeBridge.fileOpen && schedulesModel.count > 0
+            visible: homeBridge.fileOpen && schedulesModel.count > 0 && homeBridge.showScheduledPayments
             Layout.fillWidth: true
             contentItem: ColumnLayout {
                 spacing: Kirigami.Units.smallSpacing

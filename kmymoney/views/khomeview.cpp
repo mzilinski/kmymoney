@@ -143,6 +143,12 @@ void KHomeView::showEvent(QShowEvent* event)
 void KHomeView::slotPrintView()
 {
     Q_D(KHomeView);
+#ifdef ENABLE_QML_HOME
+    if (d->m_useQml) {
+        d->printQml(false);
+        return;
+    }
+#endif
     if (d->m_view) {
         auto printer = KMyMoneyPrinter::startPrint();
         if (printer != nullptr) {
@@ -154,6 +160,12 @@ void KHomeView::slotPrintView()
 void KHomeView::slotPrintPreviewView()
 {
     Q_D(KHomeView);
+#ifdef ENABLE_QML_HOME
+    if (d->m_useQml) {
+        d->printQml(true);
+        return;
+    }
+#endif
     if (d->m_view) {
         QPrintPreviewDialog dlg(KMyMoneyPrinter::instance(), d->m_view);
         connect(&dlg, &QPrintPreviewDialog::paintRequested, d->m_view, [&](QPrinter* printer) {
