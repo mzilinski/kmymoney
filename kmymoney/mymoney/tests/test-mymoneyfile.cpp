@@ -2173,6 +2173,74 @@ void MyMoneyFileTest::testReassignImbalanceToCategory()
     m->setAutoBalanceMode(false);
 }
 
+void MyMoneyFileTest::testCategorizedImportNotBalancedToImbalance()
+{
+    // LH-F-14: a statement import whose payee carries a default category arrives as an
+    // already-balanced two-split transaction (asset + category). Auto-balance must leave
+    // it alone — balanceTransactionToImbalance early-returns on a zero residual — and must
+    // NOT append a third split on the imbalance account. (The uncategorized counterpart —
+    // a lone asset split that lands on the imbalance account, LH-F-02/LH-F-12 — is covered
+    // by testAutoBalanceTransaction.) This is a regression guard for the engine invariant
+    // the SimpleMode import gates rely on; the reader gates themselves are GUI-bound and
+    // not unit-testable (the reader does not link in tests).
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // a real expense category, as a payee's defaultAccountId would point to
+    MyMoneyAccount expense;
+    expense.setName(QStringLiteral("Groceries"));
+    expense.setAccountType(eMyMoney::Account::Type::Expense);
+    MyMoneyFileTransaction ft;
+    try {
+        MyMoneyAccount expenseParent = m->expense();
+        m->addAccount(expense, expenseParent);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    m->setAutoBalanceMode(true);
+
+    // the already-balanced two-split shape the statement reader builds from a payee
+    // defaultAccountId: an asset side plus the category side summing to zero
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    t.setMemo(QStringLiteral("categorized import"));
+    MyMoneySplit assetSplit;
+    assetSplit.setAccountId(QStringLiteral("A000001"));
+    assetSplit.setShares(MyMoneyMoney(-1000, 100));
+    assetSplit.setValue(MyMoneyMoney(-1000, 100));
+    t.addSplit(assetSplit);
+    MyMoneySplit categorySplit;
+    categorySplit.setAccountId(expense.id());
+    categorySplit.setShares(MyMoneyMoney(1000, 100));
+    categorySplit.setValue(MyMoneyMoney(1000, 100));
+    t.addSplit(categorySplit);
+
+    ft.restart();
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    const auto stored = m->transaction(t.id());
+    // exactly the two original splits, still balanced — no imbalance split was appended
+    QCOMPARE(stored.splitCount(), static_cast<uint>(2));
+    QVERIFY(stored.splitSum().isZero());
+    // positive whitelist: every split is one of the two we added, which proves no third
+    // split on the imbalance account exists — without calling imbalanceAccount(), whose
+    // non-const overload would lazily create the account as a side effect.
+    const auto storedSplits = stored.splits();
+    for (const auto& s : storedSplits) {
+        QVERIFY(s.accountId() == QStringLiteral("A000001") || s.accountId() == expense.id());
+    }
+    QCOMPARE(stored.splitByAccount(expense.id()).value(), MyMoneyMoney(1000, 100));
+
+    m->setAutoBalanceMode(false);
+}
+
 void MyMoneyFileTest::testAutoBalanceMultiCurrency()
 {
     setupBaseCurrency();

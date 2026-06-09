@@ -342,6 +342,15 @@ MyMoneyStatementReader::MyMoneyStatementReader()
     , m_ft(nullptr)
 {
     m_askPayeeCategory = KMyMoneySettings::askForPayeeCategory();
+    // SimpleMode guarantees a frictionless import: never block the user with the modal
+    // "Default Category for Payee" dialog (LH-F-02/LH-F-12 "Muss"), independent of the
+    // global askForPayeeCategory setting. A new payee keeps an empty defaultAccountId, so
+    // the booking carries no category split and flows to the Imbalance account via the
+    // engine's auto-balance (when SimpleModeAutoBalance is enabled — the default; with it
+    // off the booking persists as an editable, ledger-recategorizable single-split tx).
+    // Flag off ⇒ m_askPayeeCategory == askForPayeeCategory() exactly as upstream.
+    if (KMyMoneySettings::simpleMode())
+        m_askPayeeCategory = false;
 }
 
 MyMoneyStatementReader::~MyMoneyStatementReader()
@@ -987,6 +996,14 @@ void MyMoneyStatementReader::processTransactionEntry(const MyMoneyStatement::Tra
     auto payeeCreationMode = thisaccount.payeeCreation();
     if (payeeCreationMode == eMyMoney::Account::PayeeCreation::ApplicationDefault) {
         payeeCreationMode = m_payeeCreationMode;
+    }
+
+    // SimpleMode never forces the "add new payee?" question on the user (LH-F-02): an
+    // unmatched payee is created silently. Only applied when the account has no explicit
+    // per-account payee-creation policy, so a deliberate user choice still wins. Flag off
+    // ⇒ this block is skipped and payeeCreationMode keeps its upstream-resolved value.
+    if (KMyMoneySettings::simpleMode() && thisaccount.payeeCreation() == eMyMoney::Account::PayeeCreation::ApplicationDefault) {
+        payeeCreationMode = eMyMoney::Account::PayeeCreation::AutomaticCreaation;
     }
 
     const auto importedPayeeName = statementTransactionUnderImport.m_strPayee;

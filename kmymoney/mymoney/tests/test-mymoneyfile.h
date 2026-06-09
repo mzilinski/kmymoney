@@ -74,6 +74,7 @@ private Q_SLOTS:
     void testNoAutoBalanceWhenDisabled();
     void testModifyTransactionAutoBalanceIdempotency();
     void testReassignImbalanceToCategory();
+    void testCategorizedImportNotBalancedToImbalance();
     void testAutoBalanceMultiCurrency();
     void testConsistencyCheckAutoBalance();
     void testConsistencyCheckSimpleModeNoAutoBalance();
