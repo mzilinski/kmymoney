@@ -102,6 +102,7 @@ void KSettingsGeneral::slotSimpleModeToggled(bool checked)
     d->ui->kcfg_SimpleModeAutoBalance->setEnabled(checked);
     d->ui->kcfg_SimpleModeDeriveOpeningDate->setEnabled(checked);
     d->ui->kcfg_SimpleModeLearnPayeeIban->setEnabled(checked);
+    d->ui->kcfg_SimpleModeLearnCategory->setEnabled(checked);
     if (checked && d->ui->kcfg_ExpertMode->isChecked()) {
         d->ui->kcfg_ExpertMode->setChecked(false);
     }

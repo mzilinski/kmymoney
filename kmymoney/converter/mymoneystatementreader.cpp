@@ -410,6 +410,15 @@ bool MyMoneyStatementReader::import(const MyMoneyStatement& _statement)
     d->m_brokerageAccount = MyMoneyAccount();
 
     d->m_skipCategoryMatching = statement.m_skipCategoryMatching;
+    // SimpleMode opt-out (LH-F-15) for the already-on-by-default history category
+    // suggestion: when the user disables SimpleModeLearnCategory, force matching off so an
+    // otherwise-uncategorized import stays uncategorized for deliberate manual categorization
+    // (balanced to the imbalance account when SimpleModeAutoBalance is on — the default;
+    // otherwise an editable single-split tx). This only ever forces matching OFF, never on,
+    // so it can never override an import source's explicit opt-out (e.g. QIF "map categories").
+    // SimpleMode off ⇒ the statement value is retained, byte-for-byte upstream.
+    if (KMyMoneySettings::simpleMode() && !KMyMoneySettings::simpleModeLearnCategory())
+        d->m_skipCategoryMatching = true;
 
     // if the statement source left some information about
     // the account, we use it to get the current data of it

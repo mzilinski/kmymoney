@@ -536,6 +536,16 @@ Set it to 0 to turn the feature off.</string>
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QCheckBox" name="kcfg_SimpleModeLearnCategory">
+                <property name="whatsThis">
+                 <string>In simplified mode, when an imported transaction has no category, reuse the category last assigned to a transaction of the same payee in this account. Disable this to leave such imports uncategorized for deliberate manual categorization.</string>
+                </property>
+                <property name="text">
+                 <string>Reuse a payee's last category for imported transactions</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </item>
            </layout>
