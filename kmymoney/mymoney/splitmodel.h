@@ -76,6 +76,18 @@ public:
     bool hasMultiCurrencySplits() const;
 
     /**
+     * Simplified-mode presentation: when @p enable is true, the @c Payment column is
+     * relabeled "Amount" and shows the split's SIGNED value (the @c Deposit column is
+     * meant to be hidden by the view) so the user is not confronted with the debit/credit
+     * (Soll/Haben) distinction (requirement LH-F-16). Default off — with it off the model
+     * is byte-for-byte identical to before. This is pushed in by the GUI (the app), so the
+     * engine stays free of any GUI settings dependency. The column set and @c columnCount()
+     * are unchanged; only the @c Payment header text and its displayed value differ.
+     */
+    void setSingleAmountColumn(bool enable);
+    bool singleAmountColumn() const;
+
+    /**
      * When copying an existing transaction, the IDs assigned
      * to the splits need to be replaced when the transaction is
      * actually created. This method forces new split IDs to

@@ -61,6 +61,7 @@ struct SplitModel::Private
         transactionCommodity = right.d->transactionCommodity;
         currentSplitCount = right.d->currentSplitCount;
         showCurrencies = right.d->showCurrencies;
+        singleAmount = right.d->singleAmount;
 
         blocker.unblock();
         // send out a combined dataChanged signal
@@ -303,11 +304,38 @@ struct SplitModel::Private
         s.setPrice(s.possiblyCalculatedPrice());
     }
 
+    // Simplified single-amount presentation (LH-F-16): Payment column shows the signed
+    // value and is labeled "Amount"; Deposit is hidden by the view. Pushed in from the GUI
+    // (setSingleAmountColumn) so the engine stays GUI-settings-free. Default off.
+    QString displaySignedAmount(const MyMoneySplit& split) const
+    {
+        if (split.id().isEmpty())
+            return {};
+        const auto value = split.value();
+        if (value.isAutoCalc())
+            return i18nc("@info:placeholder amount widget", "calculated");
+        // The category split carries the opposite sign of the asset split; negate so the
+        // user reads an expense as negative and income as positive (matching the inline
+        // amount editor, which loads -value).
+        return (-value).formatMoney(transactionCurrencySymbol(), transactionCurrencyPrecision());
+    }
+
+    QString displaySignedShares(const MyMoneySplit& split) const
+    {
+        if (split.id().isEmpty())
+            return {};
+        const auto shares = split.shares();
+        if (shares.isAutoCalc())
+            return i18nc("@info:placeholder amount widget", "calculated");
+        return (-shares).formatMoney(splitCurrencySymbol(split), splitCurrencyPrecision(split));
+    }
+
     SplitModel* q;
     QHash<Column, QString> headerData;
     QString transactionCommodity;
     int currentSplitCount;
     bool showCurrencies;
+    bool singleAmount = false;
 };
 
 SplitModel::SplitModel(QObject* parent, QUndoStack* undoStack)
@@ -364,6 +392,11 @@ QVariant SplitModel::headerData(int section, Qt::Orientation orientation, int ro
         switch (role) {
         case Qt::DisplayRole:
         case eMyMoney::Model::LongDisplayRole:
+            // In single-amount mode the Payment column is the signed "Amount" column.
+            // Compute the label here (not by mutating the stored hash) so a model copy or a
+            // mode toggle can never strand the wrong header.
+            if (d->singleAmount && section == Column::Payment)
+                return i18nc("Split header", "Amount");
             return d->headerData.value(static_cast<Column>(section));
 
         case Qt::SizeHintRole:
@@ -413,7 +446,16 @@ QVariant SplitModel::data(const QModelIndex& idx, int role) const
         }
 
         case Column::Payment:
+            // Single-amount mode: this column is the signed "Amount" (no Soll/Haben).
+            if (d->singleAmount)
+                return d->displaySignedAmount(split);
+            return d->displayValueAmount(split, idx.column());
+
         case Column::Deposit:
+            // Hidden by the view in single-amount mode; return nothing so a stray read
+            // never shows a second amount.
+            if (d->singleAmount)
+                return QVariant();
             return d->displayValueAmount(split, idx.column());
 
         case Tags:
@@ -427,10 +469,15 @@ QVariant SplitModel::data(const QModelIndex& idx, int role) const
     case Qt::ToolTipRole:
         switch (idx.column()) {
         case Column::Payment:
-        case Column::Deposit:
             if (d->showCurrencies) {
+                return d->singleAmount ? d->displaySignedShares(split) : d->displaySharesAmount(split, idx.column());
+            }
+            break;
+        case Column::Deposit:
+            if (d->showCurrencies && !d->singleAmount) {
                 return d->displaySharesAmount(split, idx.column());
             }
+            break;
         }
         break;
 
@@ -687,6 +734,23 @@ void SplitModel::setTransactionCommodity(const QString& commodity)
 {
     d->transactionCommodity = commodity;
     checkForForeignCurrency();
+}
+
+void SplitModel::setSingleAmountColumn(bool enable)
+{
+    if (d->singleAmount == enable)
+        return;
+    d->singleAmount = enable;
+    // The Payment header becomes "Amount" and the Payment/Deposit cell contents change.
+    Q_EMIT headerDataChanged(Qt::Horizontal, Column::Payment, Column::Payment);
+    const auto rows = rowCount();
+    if (rows > 0)
+        Q_EMIT dataChanged(index(0, Column::Payment), index(rows - 1, Column::Deposit));
+}
+
+bool SplitModel::singleAmountColumn() const
+{
+    return d->singleAmount;
 }
 
 void SplitModel::checkForForeignCurrency() const
