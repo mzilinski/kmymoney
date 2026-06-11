@@ -29,6 +29,7 @@
 
 #include "accountcreator.h"
 #include "accountsmodel.h"
+#include "amountedit.h"
 #include "costcentermodel.h"
 #include "creditdebitedit.h"
 #include "icons.h"
@@ -62,7 +63,7 @@ struct NewSplitEditor::Private
 {
     Q_DISABLE_COPY_MOVE(Private)
 
-    Private(NewSplitEditor* parent)
+    Private(NewSplitEditor* parent, bool singleAmountColumn)
         : q(parent)
         , ui(new Ui_NewSplitEditor)
         , tabOrderUi(nullptr)
@@ -78,12 +79,17 @@ struct NewSplitEditor::Private
         , isIncomeExpense(false)
         , readOnly(false)
         , protectClosedAccount(false)
+        , singleAmountMode(singleAmountColumn)
         , postDate(QDate::currentDate())
         , frameCollection(nullptr)
         , currencyCalculator(q->MyMoneyFactory::create<KCurrencyCalculator>())
-        , m_tabOrder(QLatin1String("splitTransactionEditor"),
+        // single-amount mode persists its tab order under its own config key so
+        // the SimpleMode-only widget name never leaks into the upstream
+        // "splitTransactionEditor" entry (whose consumers do not all cope with
+        // unknown names) and the two modes don't overwrite each other's order
+        , m_tabOrder(singleAmountColumn ? QLatin1String("splitTransactionEditorSimple") : QLatin1String("splitTransactionEditor"),
                      QStringList{
-                         QLatin1String("creditDebitEdit"),
+                         singleAmountColumn ? QLatin1String("singleAmountEdit") : QLatin1String("creditDebitEdit"),
                          QLatin1String("payeeEdit"),
                          QLatin1String("numberEdit"),
                          QLatin1String("accountCombo"),
@@ -112,6 +118,18 @@ struct NewSplitEditor::Private
 
     bool checkForValidSplit(bool doUserInteraction = true);
 
+    /**
+     * Returns the amount entry widget in use: the single signed amount
+     * field in single-amount mode (LH-F-16), the credit/debit pair otherwise.
+     */
+    MultiCurrencyEdit* amountWidget() const
+    {
+        if (singleAmountMode) {
+            return ui->singleAmountEdit;
+        }
+        return ui->creditDebitEdit;
+    }
+
     bool costCenterChanged(int costCenterIndex);
     bool categoryChanged(const QString& accountId);
     bool numberChanged(const QString& newNumber);
@@ -139,6 +157,7 @@ struct NewSplitEditor::Private
     bool isIncomeExpense;
     bool readOnly;
     bool protectClosedAccount;
+    bool singleAmountMode;
     MyMoneyAccount counterAccount;
     MyMoneyAccount category;
     MyMoneySecurity commodity;
@@ -219,19 +238,20 @@ bool NewSplitEditor::Private::categoryChanged(const QString& accountId)
             const auto currency = MyMoneyFile::instance()->currenciesModel()->itemById(currencyId);
 
             // in case the commodity changes, we need to update the shares part
-            if (currency.id() != ui->creditDebitEdit->sharesCommodity().id()) {
-                ui->creditDebitEdit->setSharesCommodity(currency);
-                const auto sharesAmount = ui->creditDebitEdit->value();
-                ui->creditDebitEdit->setShares(sharesAmount);
+            const auto amountEdit = amountWidget();
+            if (currency.id() != amountEdit->sharesCommodity().id()) {
+                amountEdit->setSharesCommodity(currency);
+                const auto sharesAmount = amountEdit->value();
+                amountEdit->setShares(sharesAmount);
                 // switch to value display so that we show the transaction commodity
                 // for single currency data entry this does not have an effect
-                ui->creditDebitEdit->setDisplayState(MultiCurrencyEdit::DisplayValue);
+                amountEdit->setDisplayState(MultiCurrencyEdit::DisplayValue);
 
                 if (!sharesAmount.isZero()) {
                     if (baseEditor) {
-                        baseEditor->updateConversionRate(ui->creditDebitEdit);
+                        baseEditor->updateConversionRate(amountEdit);
                     } else {
-                        currencyCalculator->updateConversion(ui->creditDebitEdit, postDate);
+                        currencyCalculator->updateConversion(amountEdit, postDate);
                     }
                 }
             }
@@ -273,13 +293,14 @@ bool NewSplitEditor::Private::numberChanged(const QString& newNumber)
 
 bool NewSplitEditor::Private::amountChanged()
 {
+    const auto amountEdit = amountWidget();
     // bypass a simple reverse in sign because the exchange rate does not change
-    if ((shares != -ui->creditDebitEdit->shares()) || (value != -ui->creditDebitEdit->value())) {
+    if ((shares != -amountEdit->shares()) || (value != -amountEdit->value())) {
         // and if there is no real change, don't call the currency calculator
-        if ((shares != ui->creditDebitEdit->shares()) || (value != ui->creditDebitEdit->value())) {
-            currencyCalculator->updateConversion(ui->creditDebitEdit, postDate);
-            shares = ui->creditDebitEdit->shares();
-            value = ui->creditDebitEdit->value();
+        if ((shares != amountEdit->shares()) || (value != amountEdit->value())) {
+            currencyCalculator->updateConversion(amountEdit, postDate);
+            shares = amountEdit->shares();
+            value = amountEdit->value();
         }
     } else {
         shares = -shares;
@@ -298,7 +319,8 @@ void NewSplitEditor::Private::createCategory()
     creator->addButton(ui->cancelButton);
     creator->addButton(ui->enterButton);
     creator->setAccountType(eMyMoney::Account::Type::Expense);
-    if (ui->creditDebitEdit->haveValue() && ui->creditDebitEdit->value().isPositive()) {
+    const auto haveAmount = singleAmountMode ? ui->singleAmountEdit->isValid() : ui->creditDebitEdit->haveValue();
+    if (haveAmount && amountWidget()->value().isPositive()) {
         creator->setAccountType(eMyMoney::Account::Type::Income);
     }
     creator->createAccount();
@@ -356,10 +378,21 @@ void NewSplitEditor::Private::createPayee(QComboBox* comboBox)
     creator->createPayee();
 }
 
+// The working split model carries the single-amount presentation flag (LH-F-16,
+// pushed in by NewTransactionEditor::editSplits). The row editor follows it so
+// that the inline amount entry matches the single signed "Amount" column of the
+// table: one signed field instead of the credit/debit (Soll/Haben) pair.
+static bool useSingleAmountMode(QWidget* parent)
+{
+    const auto* ledgerView = qobject_cast<SplitView*>(parent->parentWidget());
+    const auto* splitModel = ledgerView ? qobject_cast<SplitModel*>(ledgerView->model()) : nullptr;
+    return (splitModel != nullptr) && splitModel->singleAmountColumn();
+}
+
 NewSplitEditor::NewSplitEditor(QWidget* parent, const MyMoneySecurity& commodity, const QString& counterAccountId)
     : QWidget(parent)
     , MyMoneyFactory(this)
-    , d(new Private(this))
+    , d(new Private(this, useSingleAmountMode(parent)))
 {
     d->commodity = commodity;
     auto const file = MyMoneyFile::instance();
@@ -371,6 +404,8 @@ NewSplitEditor::NewSplitEditor(QWidget* parent, const MyMoneySecurity& commodity
     d->counterAccount = model->itemById(counterAccountId);
 
     d->ui->setupUi(this);
+    d->ui->singleAmountEdit->setVisible(d->singleAmountMode);
+    d->ui->creditDebitEdit->setVisible(!d->singleAmountMode);
     d->ui->enterButton->setIcon(Icons::get(Icon::DialogOK));
     d->ui->cancelButton->setIcon(Icons::get(Icon::DialogCancel));
     const auto& action = pActions[eMenu::Action::EditTabOrder];
@@ -433,8 +468,13 @@ NewSplitEditor::NewSplitEditor(QWidget* parent, const MyMoneySecurity& commodity
     d->frameCollection->addFrame(new WidgetHintFrame(d->ui->numberEdit, WidgetHintFrame::Warning));
     d->frameCollection->addWidget(d->ui->enterButton);
 
-    d->ui->creditDebitEdit->setAllowEmpty(true);
-    d->ui->creditDebitEdit->setCommodity(commodity);
+    if (d->singleAmountMode) {
+        d->ui->singleAmountEdit->setAllowEmpty(true);
+        d->ui->singleAmountEdit->setCommodity(commodity);
+    } else {
+        d->ui->creditDebitEdit->setAllowEmpty(true);
+        d->ui->creditDebitEdit->setCommodity(commodity);
+    }
 
     connect(d->ui->numberEdit, &QLineEdit::textChanged, this, [&](const QString& txt) {
         d->numberChanged(txt);
@@ -471,9 +511,15 @@ NewSplitEditor::NewSplitEditor(QWidget* parent, const MyMoneySecurity& commodity
     connect(d->ui->accountCombo, &KMyMoneyAccountCombo::accountSelected, this, [&](const QString& categoryId) {
         d->categoryChanged(categoryId);
     });
-    connect(d->ui->creditDebitEdit, &CreditDebitEdit::amountChanged, this, [&]() {
-        d->amountChanged();
-    });
+    if (d->singleAmountMode) {
+        connect(d->ui->singleAmountEdit, &AmountEdit::amountChanged, this, [&]() {
+            d->amountChanged();
+        });
+    } else {
+        connect(d->ui->creditDebitEdit, &CreditDebitEdit::amountChanged, this, [&]() {
+            d->amountChanged();
+        });
+    }
 
     connect(d->ui->cancelButton, &QToolButton::clicked, this, &NewSplitEditor::reject);
     connect(d->ui->enterButton, &QToolButton::clicked, this, &NewSplitEditor::acceptEdit);
@@ -484,31 +530,33 @@ NewSplitEditor::NewSplitEditor(QWidget* parent, const MyMoneySecurity& commodity
     d->ui->memoEdit->installEventFilter(this);
     d->ui->tagContainer->tagCombo()->installEventFilter(this);
     d->ui->accountCombo->installEventFilter(this);
-    d->ui->creditDebitEdit->installEventFilter(this);
+    d->amountWidget()->widget()->installEventFilter(this);
     d->ui->editTabOrderButton->installEventFilter(this);
 
     // setup the tab order
     d->m_tabOrder.setWidget(this);
 
-    // determine order of credit and debit edit widgets
-    // based on their visual order in the ledger
-    int creditColumn = SplitModel::Column::Payment;
-    int debitColumn = SplitModel::Column::Deposit;
+    // determine order of credit and debit edit widgets based on their visual
+    // order in the ledger (moot in single-amount mode: only one field)
+    if (!d->singleAmountMode) {
+        int creditColumn = SplitModel::Column::Payment;
+        int debitColumn = SplitModel::Column::Deposit;
 
-    QWidget* w(this);
-    do {
-        w = w->parentWidget();
-        const auto v = qobject_cast<const QTableView*>(w);
-        if (v) {
-            creditColumn = v->horizontalHeader()->visualIndex(creditColumn);
-            debitColumn = v->horizontalHeader()->visualIndex(debitColumn);
-            break;
+        QWidget* w(this);
+        do {
+            w = w->parentWidget();
+            const auto v = qobject_cast<const QTableView*>(w);
+            if (v) {
+                creditColumn = v->horizontalHeader()->visualIndex(creditColumn);
+                debitColumn = v->horizontalHeader()->visualIndex(debitColumn);
+                break;
+            }
+        } while (w);
+
+        // in case they are in the opposite order, we swap the edit widgets
+        if (debitColumn < creditColumn) {
+            d->ui->creditDebitEdit->swapCreditDebit();
         }
-    } while (w);
-
-    // in case they are in the opposite order, we swap the edit widgets
-    if (debitColumn < creditColumn) {
-        d->ui->creditDebitEdit->swapCreditDebit();
     }
 
     d->setInitialFocus();
@@ -520,8 +568,13 @@ NewSplitEditor::~NewSplitEditor()
 
 void NewSplitEditor::setAmountPlaceHolderText(const QAbstractItemModel* model)
 {
-    d->ui->creditDebitEdit->setPlaceholderText(model->headerData(SplitModel::Column::Payment, Qt::Horizontal).toString(),
-                                               model->headerData(SplitModel::Column::Deposit, Qt::Horizontal).toString());
+    if (d->singleAmountMode) {
+        // single signed field: the Payment column carries the "Amount" header in this mode
+        d->ui->singleAmountEdit->setPlaceholderText(model->headerData(SplitModel::Column::Payment, Qt::Horizontal).toString());
+    } else {
+        d->ui->creditDebitEdit->setPlaceholderText(model->headerData(SplitModel::Column::Payment, Qt::Horizontal).toString(),
+                                                   model->headerData(SplitModel::Column::Deposit, Qt::Horizontal).toString());
+    }
 }
 
 void NewSplitEditor::setPostDate(const QDate& date)
@@ -636,25 +689,35 @@ void NewSplitEditor::setMemo(const QString& memo)
 
 MyMoneyMoney NewSplitEditor::shares() const
 {
-    return d->ui->creditDebitEdit->shares();
+    // a cleared single amount field means zero; AmountEdit would return
+    // the last parsed amount because clearing the text does not reset
+    // its internally cached value
+    if (d->singleAmountMode && !d->ui->singleAmountEdit->isValid()) {
+        return MyMoneyMoney();
+    }
+    return d->amountWidget()->shares();
 }
 
 void NewSplitEditor::setShares(const MyMoneyMoney& amount)
 {
     d->shares = amount;
-    d->ui->creditDebitEdit->setShares(amount);
+    d->amountWidget()->setShares(amount);
     d->setInitialFocus();
 }
 
 MyMoneyMoney NewSplitEditor::value() const
 {
-    return d->ui->creditDebitEdit->value();
+    // a cleared single amount field means zero (see shares() above)
+    if (d->singleAmountMode && !d->ui->singleAmountEdit->isValid()) {
+        return MyMoneyMoney();
+    }
+    return d->amountWidget()->value();
 }
 
 void NewSplitEditor::setValue(const MyMoneyMoney& amount)
 {
     d->value = amount;
-    d->ui->creditDebitEdit->setValue(amount);
+    d->amountWidget()->setValue(amount);
     d->setInitialFocus();
 }
 
@@ -743,6 +806,10 @@ QWidget* NewSplitEditor::setupUi(QWidget* parent)
         d->tabOrderUi = new Ui::NewSplitEditor;
     }
     d->tabOrderUi->setupUi(parent);
+    // mirror the live editor's amount entry mode so that the tab order
+    // dialog only shows and persists the widget that is actually in use
+    d->tabOrderUi->singleAmountEdit->setVisible(d->singleAmountMode);
+    d->tabOrderUi->creditDebitEdit->setVisible(!d->singleAmountMode);
     return this;
 }
 
@@ -894,16 +961,23 @@ void NewSplitEditor::setProtectClosedAccount(bool protect)
 {
     d->protectClosedAccount = protect;
 
-    d->ui->creditDebitEdit->setDisabled(protect);
+    const auto amountEditWidget = d->amountWidget()->widget();
+    if (d->singleAmountMode) {
+        // route through AmountEdit::setEnabled which tracks the state internally
+        // (QWidget::setDisabled would be undone by the next value update)
+        d->ui->singleAmountEdit->setEnabled(!protect);
+    } else {
+        amountEditWidget->setDisabled(protect);
+    }
     d->ui->accountCombo->setDisabled(protect);
 
     if (protect) {
         const auto tip = i18nc("@info:tooltip Protected", "This widget is currently protected because the transaction references a closed account.");
         d->ui->accountCombo->setToolTip(tip);
-        d->ui->creditDebitEdit->setToolTip(tip);
+        amountEditWidget->setToolTip(tip);
     } else {
         d->ui->accountCombo->setToolTip(QString());
-        d->ui->creditDebitEdit->setToolTip(QString());
+        amountEditWidget->setToolTip(QString());
     }
 }
 

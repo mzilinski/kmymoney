@@ -12,7 +12,7 @@
   </property>
   <layout class="QGridLayout" name="gridLayout" columnstretch="0,3,0,1">
    <item row="0" column="0" colspan="4">
-    <layout class="QHBoxLayout" name="hl1" stretch="0,1,0">
+    <layout class="QHBoxLayout" name="hl1" stretch="0,1,0,0">
      <item>
       <spacer name="hs2">
        <property name="orientation">
@@ -41,6 +41,19 @@
        <property name="minimumSize">
         <size>
          <width>220</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="kmm_taborder" stdset="0">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="AmountEdit" name="singleAmountEdit">
+       <property name="minimumSize">
+        <size>
+         <width>110</width>
          <height>0</height>
         </size>
        </property>
@@ -244,6 +257,11 @@
    <extends>QWidget</extends>
    <header>creditdebitedit.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>AmountEdit</class>
+   <extends>QLineEdit</extends>
+   <header>amountedit.h</header>
   </customwidget>
  </customwidgets>
  <tabstops>
