@@ -82,6 +82,7 @@ public:
     QString transactionPayeeId;
     bool readOnly;
     bool singleAmount = false;
+    bool autoBalancedResidual = false;
 };
 
 static const int SumRow = 0;
@@ -227,10 +228,12 @@ void SplitDialog::accept()
     if (d->transactionTotal.isAutoCalc()) {
         d->transactionTotal = d->splitsTotal;
 
-    } else if (d->singleAmount) {
-        // Simplified (LH-F-16) mode: a partial split set is intentional — keep the full
-        // transaction amount and let the engine auto-balance the residual to the imbalance
-        // account, without confronting the user with the Soll/Haben adjust dialog.
+    } else if (d->autoBalancedResidual) {
+        // Simplified (LH-F-16) mode with auto-balance: a partial split set is intentional —
+        // keep the full transaction amount and let the engine balance the residual to the
+        // imbalance account, without confronting the user with the Soll/Haben adjust dialog.
+        // With auto-balance disabled nothing would pick up the residual, so the
+        // safety net below remains in place.
     } else if (d->transactionTotal != d->splitsTotal) {
         QPointer<SplitAdjustDialog> dlg = new SplitAdjustDialog(this);
         dlg->setValues(d->ui->summaryView->item(AmountRow, ValueCol)->data(Qt::DisplayRole).toString(),
@@ -278,6 +281,10 @@ void SplitDialog::setSingleAmountMode(bool enable)
     // skips the residual prefill). Must run before setModel() so the view's ColumnSelector
     // is rebuilt under its own config group first.
     d->singleAmount = enable;
+    // When the engine balances a residual to the imbalance account anyway, a partial
+    // split set is intentional and the manual balancing affordance only misleads.
+    d->autoBalancedResidual = enable && MyMoneyFile::instance()->autoBalanceMode();
+    d->ui->adjustUnassigned->setVisible(!d->autoBalancedResidual);
     d->ui->splitView->setSingleAmountColumn(enable);
 }
 
@@ -319,11 +326,13 @@ void SplitDialog::adjustSummary()
     const auto model = d->ui->splitView->model();
 
     bool haveAutoCalcSplits(false);
+    int realSplitCount(0);
     for (int row = 0; row < model->rowCount(); ++row) {
         const auto index = model->index(row, 0);
         if (index.isValid() && !index.data(eMyMoney::Model::SplitIsNewRole).toBool()) {
             haveAutoCalcSplits |= index.data(eMyMoney::Model::SplitIsAutoCalcRole).toBool();
             d->splitsTotal += index.data(eMyMoney::Model::SplitValueRole).value<MyMoneyMoney>();
+            ++realSplitCount;
         }
     }
 
@@ -347,17 +356,31 @@ void SplitDialog::adjustSummary()
 
         if (!d->transactionTotal.isAutoCalc() && !haveAutoCalcSplits) {
             auto diff = d->transactionTotal.abs() - d->splitsTotal.abs();
+            // A residual is not an error while simplified mode resolves it on save:
+            // with two or more (or no) categories the engine books it to the imbalance
+            // account, but with exactly one the editor binds the booking amount to the
+            // category amount instead - say what will happen instead of flagging red.
+            const bool balancedToImbalance = d->autoBalancedResidual && (realSplitCount != 1);
+            QString header;
             if (diff.isNegative()) {
-                d->ui->summaryView->item(DiffRow, HeaderCol)->setData(Qt::DisplayRole, i18nc("Split editor summary", "Overassigned"));
-                d->ui->summaryView->item(DiffRow, ValueCol)->setForeground(m_unassigned_error);
+                if (balancedToImbalance)
+                    header = i18nc("Split editor summary; the remainder is booked to the imbalance account on save", "Overassigned (balanced automatically)");
+                else if (d->autoBalancedResidual)
+                    header = i18nc("Split editor summary; with a single category the booking amount follows the category amount",
+                                   "Overassigned (amount will be adjusted)");
+                else
+                    header = i18nc("Split editor summary", "Overassigned");
             } else {
-                d->ui->summaryView->item(DiffRow, HeaderCol)->setData(Qt::DisplayRole, i18nc("Split editor summary", "Unassigned"));
-                if (diff.isZero()) {
-                    d->ui->summaryView->item(DiffRow, ValueCol)->setForeground(m_unassigned_normal);
-                } else {
-                    d->ui->summaryView->item(DiffRow, ValueCol)->setForeground(m_unassigned_error);
-                }
+                if (diff.isZero() || !d->autoBalancedResidual)
+                    header = i18nc("Split editor summary", "Unassigned");
+                else if (balancedToImbalance)
+                    header = i18nc("Split editor summary; the remainder is booked to the imbalance account on save", "Unassigned (balanced automatically)");
+                else
+                    header = i18nc("Split editor summary; with a single category the booking amount follows the category amount",
+                                   "Unassigned (amount will be adjusted)");
             }
+            d->ui->summaryView->item(DiffRow, HeaderCol)->setData(Qt::DisplayRole, header);
+            d->ui->summaryView->item(DiffRow, ValueCol)->setForeground((diff.isZero() || d->autoBalancedResidual) ? m_unassigned_normal : m_unassigned_error);
             formattedValue = (d->transactionTotal - d->splitsTotal).abs().formatMoney(currencySymbol, denom);
             d->ui->summaryView->item(DiffRow, ValueCol)->setData(Qt::DisplayRole, formattedValue);
         } else {
@@ -439,7 +462,8 @@ void SplitDialog::updateButtonState()
             // c1) the shares of the selected split is not zero or
             // c2) the account of the selected split has the same currency as the transaction
             //     in which case we can assume a price of 1
-            if (!d->transactionTotal.isAutoCalc()) {
+            // The button is hidden while the engine auto-balances the residual; keep it disabled, too.
+            if (!d->transactionTotal.isAutoCalc() && !d->autoBalancedResidual) {
                 bool disabled = (d->transactionTotal.abs() - d->splitsTotal.abs()).isZero();
                 if (!disabled) {
                     QModelIndex index = d->ui->splitView->currentIndex();
