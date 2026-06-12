@@ -385,6 +385,9 @@ public:
     QHash<eMenu::Action, SharedActionButtonInfo> m_sharedActionButtons;
 
     KSearchTransactionDlg* m_searchDlg;
+    // mode the search dialog was created in (it carries an additional
+    // instant search tab in simplified mode)
+    bool m_searchDlgInSimpleMode = false;
 
     KMenuActionExchanger* m_actionExchanger;
 
@@ -3100,6 +3103,7 @@ void KMyMoneyApp::slotFindTransaction()
 {
     if (!d->m_searchDlg) {
         d->m_searchDlg = new KSearchTransactionDlg(this);
+        d->m_searchDlgInSimpleMode = KMyMoneySettings::simpleMode();
         connect(d->m_searchDlg, &QObject::destroyed, this, [&]() {
             d->m_searchDlg = nullptr;
         });
@@ -3550,6 +3554,12 @@ void KMyMoneyApp::slotUpdateConfiguration(const QString &dialogName)
     MyMoneyFile::instance()->setSimpleMode(KMyMoneySettings::simpleMode());
     MyMoneyFile::instance()->setAutoBalanceMode(KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeAutoBalance());
     MyMoneyFile::instance()->setSimpleModeDeriveOpeningDate(KMyMoneySettings::simpleMode() && KMyMoneySettings::simpleModeDeriveOpeningDate());
+
+    // A search dialog created in the other mode would keep (or lack) the
+    // simplified mode's instant search tab; drop it, it is rebuilt on next use.
+    if (d->m_searchDlg && (d->m_searchDlgInSimpleMode != KMyMoneySettings::simpleMode())) {
+        d->m_searchDlg->deleteLater();
+    }
 
     const auto showHeaders = KMyMoneySettings::showFancyMarker();
     QDate firstFiscalDate;

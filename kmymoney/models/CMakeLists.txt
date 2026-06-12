@@ -9,6 +9,7 @@ set(libmodels_a_SOURCES
     ledgerconcatenatemodel.cpp
     ledgerfilter.cpp
     ledgerfilterbase.cpp
+    ledgersearchfilter.cpp
     ledgersortorder.cpp
     ledgersortproxymodel.cpp
     onlinebankingaccountsfilterproxymodel.cpp
