@@ -15,6 +15,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 // ----------------------------------------------------------------------------
 // Project Includes
@@ -44,12 +45,15 @@ class HomeViewBridge : public QObject
     Q_PROPERTY(double assetsValue READ assetsValue NOTIFY summaryChanged)
     Q_PROPERTY(double liabilitiesValue READ liabilitiesValue NOTIFY summaryChanged)
     Q_PROPERTY(bool fileOpen READ fileOpen NOTIFY fileOpenChanged)
-    // Per-section visibility derived from the classic home-page ItemList preference
-    // (KMyMoneySettings::listOfItems()), so hiding a section in Settings ▸ Home page also
-    // hides it here. Only the three classic codes that have a QML counterpart are honored:
-    // 1 = scheduled payments, 2|3 = accounts, 8 = assets & liabilities (which gates both the
-    // net-worth header and the assets-vs-liabilities pie). The QML-only Account Allocation
-    // pie has no classic code and stays always-on. Order is NOT honored (fixed layout).
+    // Section order AND visibility derived from the classic home-page ItemList
+    // preference (KMyMoneySettings::listOfItems()): the list contains the stable keys of
+    // the SHOWN sections in their configured order (hidden = absent = not instantiated).
+    // Mapping: 1 -> "schedules"; first shown of 2|3 -> "accounts"; 8 -> the adjacent pair
+    // "netWorthHeader","netWorthPie". The QML-only "allocation" pie has no classic code:
+    // it is always-on and anchors at the list position of the 8/-8 entry, so it travels
+    // with the wealth-overview block but cannot be hidden or reordered independently.
+    Q_PROPERTY(QStringList sectionOrder READ sectionOrder NOTIFY sectionsChanged)
+    // Kept for compatibility (computed from the same list); Home.qml no longer reads them.
     Q_PROPERTY(bool showScheduledPayments READ showScheduledPayments NOTIFY sectionsChanged)
     Q_PROPERTY(bool showAccounts READ showAccounts NOTIFY sectionsChanged)
     Q_PROPERTY(bool showAssetsLiabilities READ showAssetsLiabilities NOTIFY sectionsChanged)
@@ -63,6 +67,7 @@ public:
     double assetsValue() const;
     double liabilitiesValue() const;
     bool fileOpen() const;
+    QStringList sectionOrder() const;
     bool showScheduledPayments() const;
     bool showAccounts() const;
     bool showAssetsLiabilities() const;
@@ -81,9 +86,10 @@ public Q_SLOTS:
     void setFileOpen(bool open);
     /// Recomputes the net-worth aggregates from the engine accounts model.
     void refreshSummary();
-    /// Re-reads the home-page ItemList preference and updates the per-section visibility
-    /// flags. Called from the home view's load path (separate from refreshSummary(), which
-    /// also fires on every balance change and must not re-parse the settings each time).
+    /// Re-reads the home-page ItemList preference and updates the section order and the
+    /// per-section visibility flags. Called from the home view's load path (separate from
+    /// refreshSummary(), which also fires on every balance change and must not re-parse
+    /// the settings each time).
     void refreshSections();
 
 Q_SIGNALS:
@@ -97,6 +103,7 @@ private:
     MyMoneyMoney m_assets;
     MyMoneyMoney m_liabilities;
     MyMoneyMoney m_netWorth;
+    QStringList m_sectionOrder;
     bool m_showScheduledPayments = true;
     bool m_showAccounts = true;
     bool m_showAssetsLiabilities = true;

@@ -297,9 +297,9 @@ public:
     // so we rasterize the FULL dashboard via QQuickItem::grabToImage() — which renders the
     // item subtree off-screen at an arbitrary target size, independent of the (smaller)
     // on-screen viewport — and tile that image across the printer pages. The dashboard's
-    // Repeaters are eager (not virtualized), so every card/row has live scene-graph nodes
-    // and the grab is complete regardless of scroll position; a naive
-    // QQuickWidget::grabFramebuffer() would capture only the visible viewport.
+    // Repeaters are eager and its section Loaders synchronous (not virtualized), so every
+    // card/row has live scene-graph nodes and the grab is complete regardless of scroll
+    // position; a naive QQuickWidget::grabFramebuffer() would capture only the viewport.
 
     /// The full-content root of the dashboard (the Home.qml ColumnLayout carrying
     /// objectName "homeContent"). Null until the QML has loaded.
@@ -695,8 +695,8 @@ public:
             if (m_bridge) {
                 m_bridge->setFileOpen(m_fileOpen);
                 m_bridge->refreshSummary();
-                // Re-read the home-page ItemList so hiding/showing a section in
-                // Settings ▸ Home page takes effect here too (same settings re-eval point).
+                // Re-read the home-page ItemList so hiding/showing or reordering a section
+                // in Settings ▸ Home page takes effect here too (same settings re-eval point).
                 m_bridge->refreshSections();
             }
             // Re-apply the home-view account preferences (hide-zero-balance / show-all)

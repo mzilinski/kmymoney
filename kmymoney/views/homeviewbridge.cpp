@@ -10,8 +10,6 @@
 // ----------------------------------------------------------------------------
 // QT Includes
 
-#include <QSet>
-
 // ----------------------------------------------------------------------------
 // Project Includes
 
@@ -51,6 +49,9 @@ HomeViewBridge::HomeViewBridge(KHomeView* view, QObject* parent)
     // covered by loadView() calling refreshSummary() on each refresh().
     connect(MyMoneyFile::instance()->accountsModel(), &AccountsModel::netWorthChanged, this, &HomeViewBridge::refreshSummary);
     refreshSummary();
+    // seed the section order before the very first QML read; listOfItems() is
+    // config-only, so this is safe without an open file
+    refreshSections();
 }
 
 QString HomeViewBridge::netWorthText() const
@@ -155,30 +156,62 @@ bool HomeViewBridge::showAssetsLiabilities() const
     return m_showAssetsLiabilities;
 }
 
+QStringList HomeViewBridge::sectionOrder() const
+{
+    return m_sectionOrder;
+}
+
 void HomeViewBridge::refreshSections()
 {
-    // listOfItems() returns the classic home-page items; a hidden item is encoded as a
-    // negative code (e.g. "-8"), a shown one as its positive code. Collect the shown codes
-    // and map the three that have a QML counterpart. Codes without a QML section
-    // (4 reports, 5/7 forecast, 6 net-worth line graph, 9 budget, 10 cash flow) are ignored.
-    QSet<int> shown;
+    // One ordered pass over the classic home-page ItemList: list order is render
+    // order, a hidden item is encoded as a negative code (e.g. "-8"). Mirrors the
+    // classic loadView() dispatch (only positive codes render). Codes without a QML
+    // counterpart (4 reports, 5/7 forecast, 6 net-worth line graph, 9 budget,
+    // 10 cash flow - still rendered by the classic HTML view) and unknown codes
+    // are skipped.
+    QStringList order;
     const auto items = KMyMoneySettings::listOfItems();
     for (const auto& item : items) {
         const int code = item.toInt();
-        if (code > 0)
-            shown.insert(code);
+        switch (code) {
+        case 1:
+            if (!order.contains(QLatin1String("schedules")))
+                order << QStringLiteral("schedules");
+            break;
+        case 2:
+        case 3:
+            // one merged QML accounts section at the first shown of 2|3
+            if (!order.contains(QLatin1String("accounts")))
+                order << QStringLiteral("accounts");
+            break;
+        case 8:
+        case -8:
+            // The QML-only allocation pie has no classic code: it is always-on and
+            // anchors at the list position of the wealth-overview entry regardless
+            // of its sign, so it travels with the block when the user reorders.
+            // The header+pie pair itself only renders when the entry is shown.
+            if (code > 0 && !order.contains(QLatin1String("netWorthHeader")))
+                order << QStringLiteral("netWorthHeader") << QStringLiteral("netWorthPie");
+            if (!order.contains(QLatin1String("allocation")))
+                order << QStringLiteral("allocation");
+            break;
+        default:
+            break;
+        }
     }
+    // belt and braces: listOfItems()'s tail-merge guarantees an 8/-8 entry, but the
+    // always-on allocation pie must never get lost
+    if (!order.contains(QLatin1String("allocation")))
+        order.prepend(QStringLiteral("allocation"));
 
-    const bool schedules = shown.contains(1);
-    const bool accounts = shown.contains(2) || shown.contains(3);
-    const bool assetsLiabilities = shown.contains(8);
-
-    if (schedules == m_showScheduledPayments && accounts == m_showAccounts && assetsLiabilities == m_showAssetsLiabilities)
+    // the bool states are a pure function of the list, so this covers them too
+    if (order == m_sectionOrder)
         return;
 
-    m_showScheduledPayments = schedules;
-    m_showAccounts = accounts;
-    m_showAssetsLiabilities = assetsLiabilities;
+    m_sectionOrder = order;
+    m_showScheduledPayments = order.contains(QLatin1String("schedules"));
+    m_showAccounts = order.contains(QLatin1String("accounts"));
+    m_showAssetsLiabilities = order.contains(QLatin1String("netWorthHeader"));
     Q_EMIT sectionsChanged();
 }
 
