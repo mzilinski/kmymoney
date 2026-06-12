@@ -7,7 +7,10 @@
 // QT Includes
 
 #include <QAbstractButton>
+#include <QLineEdit>
 #include <QTimer>
+
+#include <utility>
 
 // ----------------------------------------------------------------------------
 // KDE Headers
@@ -56,6 +59,55 @@ void AccountCreator::createAccount()
             })) {
             createAccount();
             return;
+        }
+
+        // Simplified mode: typing the plain name of exactly one existing
+        // (open) account of the matching hierarchies selects that account
+        // instead of running the creation flow, so a user entering
+        // "Lebensmittel" is not asked to create what "Ausgabe:Lebensmittel"
+        // already provides.
+        if (MyMoneyFile::instance()->simpleMode()) {
+            const auto typedName = m_comboBox->currentText();
+            if (!typedName.contains(MyMoneyAccount::accountSeparator())) {
+                const bool wantAccount = (m_accountType == eMyMoney::Account::Type::Asset) || (m_accountType == eMyMoney::Account::Type::Liability);
+                QList<MyMoneyAccount> accounts;
+                MyMoneyFile::instance()->accountList(accounts);
+                QString matchedId;
+                bool unique = true;
+                for (const auto& acc : std::as_const(accounts)) {
+                    // a security or investment account never makes a counter account
+                    const bool inScope = wantAccount ? (acc.isAssetLiability() && !acc.isInvest() && acc.accountType() != eMyMoney::Account::Type::Investment)
+                                                     : acc.isIncomeExpense();
+                    if (inScope && !acc.isClosed() && (acc.name().compare(typedName, Qt::CaseInsensitive) == 0)) {
+                        if (matchedId.isEmpty()) {
+                            matchedId = acc.id();
+                        } else if (acc.id() != matchedId) {
+                            unique = false;
+                            break;
+                        }
+                    }
+                }
+                if (unique && !matchedId.isEmpty()) {
+                    if (m_comboBox->getSelected() == matchedId) {
+                        // already selected, only the display is stale: normalize it
+                        // to the full name so the editors' full-name comparison
+                        // does not re-trigger the creator on every focus out
+                        const auto idx = MyMoneyFile::instance()->accountsModel()->indexById(matchedId);
+                        m_comboBox->lineEdit()->setText(idx.data(eMyMoney::Model::AccountFullNameRole).toString());
+                        deleteLater();
+                        return;
+                    }
+                    m_comboBox->setSelected(matchedId);
+                    if (m_comboBox->getSelected() == matchedId) {
+                        deleteLater();
+                        return;
+                    }
+                    // the account is not selectable in this combo (e.g. its model
+                    // only contains one hierarchy half) and setSelected() cleared
+                    // the text: restore it and run the regular creation flow
+                    m_comboBox->lineEdit()->setText(typedName);
+                }
+            }
         }
 
         // determine the top parent account
