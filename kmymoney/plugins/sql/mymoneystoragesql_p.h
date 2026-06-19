@@ -3028,20 +3028,20 @@ public:
             if (!query.exec("DROP TABLE IF EXISTS kmmSepaOrders;"))
                 return false;
 
-            if (!query.exec(
-                        "CREATE TABLE kmmSepaOrders ("
-                        "  id varchar(32) NOT NULL PRIMARY KEY REFERENCES kmmOnlineJobs( id ) ON UPDATE CASCADE ON DELETE CASCADE,"
-                        "  originAccount varchar(32) REFERENCES kmmAccounts( id ) ON UPDATE CASCADE ON DELETE SET NULL,"
-                        "  value text,"
-                        "  purpose text,"
-                        "  endToEndReference varchar(35),"
-                        "  beneficiaryName varchar(27),"
-                        "  beneficiaryIban varchar(32),"
-                        "  beneficiaryBic char(11),"
-                        "  textKey int,"
-                        "  subTextKey int"
-                        " );"
-                    )) {
+            if (!query.exec("CREATE TABLE kmmSepaOrders ("
+                            "  id varchar(32) NOT NULL PRIMARY KEY REFERENCES kmmOnlineJobs( id ) ON UPDATE CASCADE ON DELETE CASCADE,"
+                            "  originAccount varchar(32) REFERENCES kmmAccounts( id ) ON UPDATE CASCADE ON DELETE SET NULL,"
+                            "  value text,"
+                            "  purpose text,"
+                            "  endToEndReference varchar(35),"
+                            "  beneficiaryName varchar(27),"
+                            "  beneficiaryIban varchar(32),"
+                            "  beneficiaryBic char(11),"
+                            "  textKey int,"
+                            "  subTextKey int,"
+                            "  transferType int DEFAULT 0,"
+                            "  executionDate date"
+                            " );")) {
                 qWarning("Error while creating table kmmSepaOrders: %s", qPrintable(query.lastError().text()));
                 return false;
             }
@@ -3063,8 +3063,37 @@ public:
 
         // Check if version is valid with this plugin
         switch (currentVersion) {
-        case 2:
+        case 2: {
+            // LH-F-20: idempotently add the transferType/executionDate columns to
+            // a pre-existing v2 database. We deliberately do NOT bump versionMajor:
+            // setupStoragePlugin()'s return value is discarded at both call sites,
+            // so a bump would gate nothing, and keeping version 2 leaves the wider
+            // table bidirectionally compatible with an upstream KMyMoney (its
+            // explicit SELECT ignores the extra columns; its INSERT leaves them
+            // NULL, which we read back as Standard/invalid). This runs only on the
+            // write path (actOnOnlineJobInSQL), never when merely opening a file.
+            switch (haveColumnInTable(QLatin1String("kmmSepaOrders"), QLatin1String("transferType"))) {
+            case 0:
+                if (!query.exec("ALTER TABLE kmmSepaOrders ADD COLUMN transferType int DEFAULT 0;")) {
+                    qWarning("Error while adding transferType to kmmSepaOrders: %s", qPrintable(query.lastError().text()));
+                    return false;
+                }
+                break;
+            case -1:
+                return false;
+            }
+            switch (haveColumnInTable(QLatin1String("kmmSepaOrders"), QLatin1String("executionDate"))) {
+            case 0:
+                if (!query.exec("ALTER TABLE kmmSepaOrders ADD COLUMN executionDate date;")) {
+                    qWarning("Error while adding executionDate to kmmSepaOrders: %s", qPrintable(query.lastError().text()));
+                    return false;
+                }
+                break;
+            case -1:
+                return false;
+            }
             return true;
+        }
         }
 
         return false;
@@ -3182,16 +3211,20 @@ public:
             query.bindValue(":beneficiaryBic", (task.beneficiaryTyped().storedBic().isEmpty()) ? QVariant() : QVariant::fromValue(task.beneficiaryTyped().storedBic()));
             query.bindValue(":textKey", task.textKey());
             query.bindValue(":subTextKey", task.subTextKey());
+            query.bindValue(":transferType", static_cast<int>(task.transferType()));
+            query.bindValue(":executionDate",
+                            (task.transferType() == sepaOnlineTransfer::TransferType::Dated && task.executionDate().isValid()) ? QVariant(task.executionDate())
+                                                                                                                               : QVariant());
         };
 
         switch(action) {
         case SQLAction::Save:
-            query.prepare("INSERT INTO kmmSepaOrders ("
-                          " id, originAccount, value, purpose, endToEndReference, beneficiaryName, beneficiaryIban, "
-                          " beneficiaryBic, textKey, subTextKey) "
-                          " VALUES( :id, :originAccount, :value, :purpose, :endToEndReference, :beneficiaryName, :beneficiaryIban, "
-                          "         :beneficiaryBic, :textKey, :subTextKey ) "
-                         );
+            query.prepare(
+                "INSERT INTO kmmSepaOrders ("
+                " id, originAccount, value, purpose, endToEndReference, beneficiaryName, beneficiaryIban, "
+                " beneficiaryBic, textKey, subTextKey, transferType, executionDate) "
+                " VALUES( :id, :originAccount, :value, :purpose, :endToEndReference, :beneficiaryName, :beneficiaryIban, "
+                "         :beneficiaryBic, :textKey, :subTextKey, :transferType, :executionDate ) ");
             bindValuesToQuery();
             if (!query.exec()) {
                 qWarning("Error while saving sepa order '%s': %s", qPrintable(id), qPrintable(query.lastError().text()));
@@ -3210,7 +3243,9 @@ public:
                 " beneficiaryIban = :beneficiaryIban,"
                 " beneficiaryBic = :beneficiaryBic,"
                 " textKey = :textKey,"
-                " subTextKey = :subTextKey "
+                " subTextKey = :subTextKey,"
+                " transferType = :transferType,"
+                " executionDate = :executionDate "
                 " WHERE id = :id");
             bindValuesToQuery();
             if (!query.exec()) {
@@ -3320,25 +3355,40 @@ public:
         Q_ASSERT(!onlineJobId.isEmpty());
         Q_ASSERT(connection.isOpen());
 
-        QSqlQuery query = QSqlQuery(
-                              "SELECT originAccount, value, purpose, endToEndReference, beneficiaryName, beneficiaryIban, "
-                              " beneficiaryBic, textKey, subTextKey FROM kmmSepaOrders WHERE id = ?",
-                              connection
-                          );
+        // LH-F-20: read with SELECT * and resolve columns by name so a v2 database
+        // that predates the transferType/executionDate columns still loads correctly
+        // (a hard-coded column SELECT would fail and silently drop the job, causing
+        // data loss on the next save). Indexed access keeps the existing columns fast.
+        QSqlQuery query = QSqlQuery("SELECT * FROM kmmSepaOrders WHERE id = ?", connection);
         query.bindValue(0, onlineJobId);
         if (query.exec() && query.next()) {
+            const QSqlRecord rec = query.record();
             sepaOnlineTransferImpl* task = new sepaOnlineTransferImpl();
-            task->setOriginAccount(query.value(0).toString());
-            task->setValue(MyMoneyMoney(query.value(1).toString()));
-            task->setPurpose(query.value(2).toString());
-            task->setEndToEndReference(query.value(3).toString());
-            task->setTextKey(query.value(7).toUInt());
-            task->setSubTextKey(query.value(8).toUInt());
+            task->setOriginAccount(query.value(rec.indexOf(QLatin1String("originAccount"))).toString());
+            task->setValue(MyMoneyMoney(query.value(rec.indexOf(QLatin1String("value"))).toString()));
+            task->setPurpose(query.value(rec.indexOf(QLatin1String("purpose"))).toString());
+            task->setEndToEndReference(query.value(rec.indexOf(QLatin1String("endToEndReference"))).toString());
+            task->setTextKey(query.value(rec.indexOf(QLatin1String("textKey"))).toUInt());
+            task->setSubTextKey(query.value(rec.indexOf(QLatin1String("subTextKey"))).toUInt());
+
+            // A missing column (indexOf == -1, i.e. an un-migrated v2 DB) or a NULL
+            // value decodes to the defaults Standard / invalid date.
+            const int transferTypeIdx = rec.indexOf(QLatin1String("transferType"));
+            if (transferTypeIdx != -1 && !query.value(transferTypeIdx).isNull()) {
+                const auto raw = query.value(transferTypeIdx).toUInt();
+                if (raw == static_cast<unsigned int>(sepaOnlineTransfer::TransferType::Instant))
+                    task->setTransferType(sepaOnlineTransfer::TransferType::Instant);
+                else if (raw == static_cast<unsigned int>(sepaOnlineTransfer::TransferType::Dated))
+                    task->setTransferType(sepaOnlineTransfer::TransferType::Dated);
+            }
+            const int executionDateIdx = rec.indexOf(QLatin1String("executionDate"));
+            if (executionDateIdx != -1 && !query.value(executionDateIdx).isNull())
+                task->setExecutionDate(query.value(executionDateIdx).toDate());
 
             payeeIdentifiers::ibanBic beneficiary;
-            beneficiary.setOwnerName(query.value(4).toString());
-            beneficiary.setIban(query.value(5).toString());
-            beneficiary.setBic(query.value(6).toString());
+            beneficiary.setOwnerName(query.value(rec.indexOf(QLatin1String("beneficiaryName"))).toString());
+            beneficiary.setIban(query.value(rec.indexOf(QLatin1String("beneficiaryIban"))).toString());
+            beneficiary.setBic(query.value(rec.indexOf(QLatin1String("beneficiaryBic"))).toString());
             task->setBeneficiary(beneficiary);
             return task;
         }

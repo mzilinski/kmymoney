@@ -23,6 +23,24 @@ public:
     sepaOnlineTransferImpl();
     sepaOnlineTransferImpl(const sepaOnlineTransferImpl &other);
 
+    TransferType transferType() const final override
+    {
+        return _transferType;
+    }
+    void setTransferType(TransferType type) final override
+    {
+        _transferType = type;
+    }
+
+    QDate executionDate() const final override
+    {
+        return _executionDate;
+    }
+    void setExecutionDate(const QDate& date) final override
+    {
+        _executionDate = date;
+    }
+
     QString responsibleAccount() const final override {
         return _originAccount;
     }
@@ -106,6 +124,8 @@ private:
     MyMoneyMoney _value;
     QString _purpose;
     QString _endToEndReference;
+    TransferType _transferType = TransferType::Standard;
+    QDate _executionDate;
 
     payeeIdentifiers::ibanBic _beneficiaryAccount;
 

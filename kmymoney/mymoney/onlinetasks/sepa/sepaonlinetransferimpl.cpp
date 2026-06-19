@@ -114,6 +114,8 @@ sepaOnlineTransferImpl::sepaOnlineTransferImpl()
     , _value(0)
     , _purpose(QString())
     , _endToEndReference(QString())
+    , _transferType(TransferType::Standard)
+    , _executionDate(QDate())
     , _beneficiaryAccount(payeeIdentifiers::ibanBic())
     , _textKey(defaultTextKey)
     , _subTextKey(defaultSubTextKey)
@@ -122,15 +124,17 @@ sepaOnlineTransferImpl::sepaOnlineTransferImpl()
 }
 
 sepaOnlineTransferImpl::sepaOnlineTransferImpl(const sepaOnlineTransferImpl& other)
-    : sepaOnlineTransfer(other),
-      _settings(other._settings),
-      _originAccount(other._originAccount),
-      _value(other._value),
-      _purpose(other._purpose),
-      _endToEndReference(other._endToEndReference),
-      _beneficiaryAccount(other._beneficiaryAccount),
-      _textKey(other._textKey),
-      _subTextKey(other._subTextKey)
+    : sepaOnlineTransfer(other)
+    , _settings(other._settings)
+    , _originAccount(other._originAccount)
+    , _value(other._value)
+    , _purpose(other._purpose)
+    , _endToEndReference(other._endToEndReference)
+    , _transferType(other._transferType)
+    , _executionDate(other._executionDate)
+    , _beneficiaryAccount(other._beneficiaryAccount)
+    , _textKey(other._textKey)
+    , _subTextKey(other._subTextKey)
 {
 
 }
@@ -151,6 +155,13 @@ bool sepaOnlineTransferImpl::isValid() const
     } catch (const payeeIdentifier::empty &) {
     } catch (const payeeIdentifier::badCast &) {
     }
+
+    // A dated transfer without an execution date can never be sent. We do not
+    // compare against the current date here (that would make isValid()
+    // non-deterministic); the editor checks the lead-time window and the
+    // kbanking send path enforces the bank's limits fail-closed.
+    if (_transferType == TransferType::Dated && !_executionDate.isValid())
+        return false;
 
     QSharedPointer<const sepaOnlineTransfer::settings> localSettings = getSettings();
     if (localSettings->checkPurposeLength(_purpose) == validators::ok
@@ -234,6 +245,16 @@ void sepaOnlineTransferImpl::writeXML(QXmlStreamWriter* writer) const
         writer->writeAttribute("endToEndReference", _endToEndReference);
     }
 
+    // Only write the new attributes when they differ from the default, so a file
+    // that never used the feature stays byte-identical to one written by an
+    // older version (LH-F-20 flag-off guarantee).
+    if (_transferType != TransferType::Standard) {
+        writer->writeAttribute("transferType", QString::number(static_cast<unsigned short>(_transferType)));
+    }
+    if (_transferType == TransferType::Dated && _executionDate.isValid()) {
+        writer->writeAttribute("executionDate", _executionDate.toString(Qt::ISODate));
+    }
+
     writer->writeStartElement("beneficiary");
     _beneficiaryAccount.writeXML(writer);
     writer->writeEndElement();
@@ -248,6 +269,17 @@ sepaOnlineTransfer* sepaOnlineTransferImpl::createFromXml(QXmlStreamReader* read
     task->_subTextKey = MyMoneyXmlHelper::readUintAttribute(reader, QLatin1String("subTextKey"), defaultSubTextKey);
     task->setPurpose(MyMoneyXmlHelper::readStringAttribute(reader, QLatin1String("purpose")));
     task->setEndToEndReference(MyMoneyXmlHelper::readStringAttribute(reader, QLatin1String("endToEndReference")));
+
+    // A missing transferType attribute (or an unknown value from a newer file)
+    // decodes to Standard, so older files load unchanged.
+    const auto rawTransferType = MyMoneyXmlHelper::readUintAttribute(reader, QLatin1String("transferType"), 0);
+    if (rawTransferType == static_cast<unsigned int>(TransferType::Instant))
+        task->_transferType = TransferType::Instant;
+    else if (rawTransferType == static_cast<unsigned int>(TransferType::Dated))
+        task->_transferType = TransferType::Dated;
+    else
+        task->_transferType = TransferType::Standard;
+    task->_executionDate = QDate::fromString(MyMoneyXmlHelper::readStringAttribute(reader, QLatin1String("executionDate")), Qt::ISODate);
 
     payeeIdentifiers::ibanBic beneficiary;
     payeeIdentifiers::ibanBic* beneficiaryPtr = nullptr;
@@ -283,5 +315,7 @@ KMMStringSet sepaOnlineTransferImpl::referencedObjects() const
 
 QString sepaOnlineTransferImpl::jobTypeName() const
 {
+    if (_transferType == TransferType::Dated)
+        return QLatin1String("SEPA Dated Credit Transfer");
     return QLatin1String("SEPA Credit Transfer");
 }
