@@ -51,6 +51,12 @@ kOnlineTransferForm::kOnlineTransferForm(QWidget *parent)
     ui->convertMessage->hide();
     ui->convertMessage->setWordWrap(true);
 
+    // LH-F-20: only surface the collective-transfer hint in SimpleMode. Collective
+    // transfers (Sammelüberweisung) are not a per-order choice here — aqhbci bundles
+    // same-account orders sent together into one HKCCM batch behind executeQueue();
+    // this provider-neutral note explains that, hedged for banks/accounts that don't.
+    ui->collectiveTransferHint->setVisible(MyMoneyFile::instance()->simpleMode());
+
     auto edits = onlineJobAdministration::instance()->onlineJobEdits();
     std::for_each(edits.cbegin(), edits.cend(), [this](onlineJobAdministration::onlineJobEditOffer in) {
         this->loadOnlineJobEditPlugin(in);

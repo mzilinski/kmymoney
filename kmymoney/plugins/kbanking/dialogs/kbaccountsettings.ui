@@ -134,7 +134,7 @@
        <item>
         <widget class="QCheckBox" name="m_sepaSingleTransfer">
          <property name="whatsThis">
-          <string>Normally the plugin lets AqBanking decide whether SEPA credit transfers are sent as an individual order or bundled into a collective order. Some banks (for example DKB) reject a collective order that contains only a single transfer with HBCI error 9010. Enable this option to make the plugin prefer individual SEPA transfers (HKCCS) over collective orders (HKCCM) for this account.</string>
+          <string>Normally the plugin lets AqBanking decide whether SEPA credit transfers are sent as an individual order or bundled into a collective order. Some banks (for example DKB) reject a collective order that contains only a single transfer with HBCI error 9010. Enable this option to make the plugin prefer individual SEPA transfers (HKCCS) over collective orders (HKCCM) for this account. When this option is off and several queued transfers from this account are sent together, the bank may execute them as one collective transfer (Sammelüberweisung) if it supports HKCCM.</string>
          </property>
          <property name="text">
           <string>Send SEPA transfers individually instead of as a collective order</string>

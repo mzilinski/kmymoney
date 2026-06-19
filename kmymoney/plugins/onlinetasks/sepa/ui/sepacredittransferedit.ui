@@ -94,6 +94,79 @@
     <widget class="KMyMoneyValidationFeedback" name="feedbackAmount" native="true"/>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutTransferType">
+     <item>
+      <widget class="QLabel" name="labelTransferType">
+       <property name="text">
+        <string>Transfer type</string>
+       </property>
+       <property name="buddy">
+        <cstring>transferType</cstring>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerTransferType">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="KComboBox" name="transferType"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutExecutionDate">
+     <item>
+      <widget class="QLabel" name="labelExecutionDate">
+       <property name="text">
+        <string>Execution date</string>
+       </property>
+       <property name="buddy">
+        <cstring>executionDate</cstring>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerExecutionDate">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="KMyMoneyDateEdit" name="executionDate"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="KMyMoneyValidationFeedback" name="feedbackExecutionDate" native="true"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="labelDatedCompatHint">
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string>Note: Do not open this file with another KMyMoney version while a dated transfer is pending (unsent).</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="label">
      <property name="text">
       <string>End-to-end reference</string>
@@ -209,11 +282,24 @@
     <signal>validatorFeedback(KMyMoneyValidationFeedback::MessageType,QString)</signal>
    </slots>
   </customwidget>
+  <customwidget>
+   <class>KComboBox</class>
+   <extends>QComboBox</extends>
+   <header>kcombobox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>KMyMoneyDateEdit</class>
+   <extends>KDateComboBox</extends>
+   <header>kmymoneydateedit.h</header>
+   <container>1</container>
+  </customwidget>
  </customwidgets>
  <tabstops>
   <tabstop>beneficiaryName</tabstop>
   <tabstop>beneficiaryIban</tabstop>
   <tabstop>beneficiaryBankCode</tabstop>
+  <tabstop>transferType</tabstop>
+  <tabstop>executionDate</tabstop>
   <tabstop>sepaReference</tabstop>
   <tabstop>purpose</tabstop>
  </tabstops>

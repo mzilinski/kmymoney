@@ -210,6 +210,16 @@
     </widget>
    </item>
    <item>
+    <widget class="QLabel" name="collectiveTransferHint">
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string>Pending transfers from the same account that are sent together may be submitted to the bank as one collective transfer (Sammelüberweisung) if the bank supports it, unless single transfers are preferred in the account's online settings.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <layout class="QHBoxLayout" name="horizontalLayout_4">
      <item>
       <spacer name="horizontalSpacer_4">

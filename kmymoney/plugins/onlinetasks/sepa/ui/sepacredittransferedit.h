@@ -69,6 +69,11 @@ private Q_SLOTS:
     void updateSettings();
     void updateEveryStatus();
 
+    /** @brief React to a change of the selected transfer type (LH-F-20). */
+    void transferTypeChanged();
+    /** @brief Validate the dated-transfer execution date against the lead-time window. */
+    void executionDateChanged();
+
     /** @{
      * These slots are called when the corresponding field is changed
      * to start the validation.

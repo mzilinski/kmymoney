@@ -7,25 +7,29 @@
 #include "ui_sepacredittransferedit.h"
 
 #include <QCompleter>
+#include <QDate>
 #include <QSortFilterProxyModel>
+#include <QStandardItemModel>
 #include <QTreeView>
 
 #include <KDescendantsProxyModel>
 
 #include "kguiutils.h"
+#include "kmymoneydateedit.h"
 
-#include "mymoney/payeeidentifiermodel.h"
-#include "onlinetasks/sepa/sepaonlinetransfer.h"
-#include "widgets/payeeidentifier/ibanbic/ibanvalidator.h"
-#include "widgets/payeeidentifier/ibanbic/bicvalidator.h"
-#include "payeeidentifier/payeeidentifiertyped.h"
 #include "misc/charvalidator.h"
-#include "payeeidentifier/ibanbic/ibanbic.h"
-#include "styleditemdelegateforwarder.h"
-#include "widgets/payeeidentifier/ibanbic/ibanbicitemdelegate.h"
-#include "onlinejobtyped.h"
+#include "mymoney/mymoneyfile.h"
+#include "mymoney/payeeidentifiermodel.h"
 #include "mymoneyaccount.h"
+#include "onlinejobtyped.h"
+#include "onlinetasks/sepa/sepaonlinetransfer.h"
+#include "payeeidentifier/ibanbic/ibanbic.h"
+#include "payeeidentifier/payeeidentifiertyped.h"
+#include "styleditemdelegateforwarder.h"
 #include "widgetenums.h"
+#include "widgets/payeeidentifier/ibanbic/bicvalidator.h"
+#include "widgets/payeeidentifier/ibanbic/ibanbicitemdelegate.h"
+#include "widgets/payeeidentifier/ibanbic/ibanvalidator.h"
 
 class ibanBicCompleterDelegate : public StyledItemDelegateForwarder
 {
@@ -221,6 +225,28 @@ sepaCreditTransferEdit::sepaCreditTransferEdit(QWidget *parent, QVariantList arg
     connect(this, &sepaCreditTransferEdit::readOnlyChanged, ui->sepaReference, &KLineEdit::setReadOnly);
     connect(this, &sepaCreditTransferEdit::readOnlyChanged, ui->purpose, &KMyMoneyTextEdit::setReadOnly);
 
+    // LH-F-20: transfer-type selector. The item order matches the
+    // sepaOnlineTransfer::TransferType enum values (Standard=0, Instant=1,
+    // Dated=2), so index and enum value are interchangeable.
+    ui->transferType->addItem(i18nc("@item:inlistbox transfer type", "Standard credit transfer"));
+    ui->transferType->addItem(i18nc("@item:inlistbox transfer type", "Instant transfer (SEPA Instant)"));
+    ui->transferType->addItem(i18nc("@item:inlistbox transfer type", "Dated transfer (executed by your bank on the given date)"));
+    connect(ui->transferType, &QComboBox::currentIndexChanged, this, &sepaCreditTransferEdit::transferTypeChanged);
+    connect(ui->executionDate, &KMyMoneyDateEdit::dateChanged, this, &sepaCreditTransferEdit::executionDateChanged);
+    // Combos have no setReadOnly; disable them instead when the job is read only.
+    connect(this, &sepaCreditTransferEdit::readOnlyChanged, this, [this](bool readOnly) {
+        ui->transferType->setEnabled(!readOnly);
+        ui->executionDate->setEnabled(!readOnly);
+    });
+    // Hidden until updateSettings()/transferTypeChanged() reveal them based on
+    // SimpleMode + the current selection (full mode keeps the dialog unchanged).
+    ui->labelTransferType->setVisible(false);
+    ui->transferType->setVisible(false);
+    ui->labelExecutionDate->setVisible(false);
+    ui->executionDate->setVisible(false);
+    ui->feedbackExecutionDate->setVisible(false);
+    ui->labelDatedCompatHint->setVisible(false);
+
     // Create models for completers
     payeeIdentifierModel* identModel = new payeeIdentifierModel(this);
     identModel->setTypeFilter(payeeIdentifiers::ibanBic::staticPayeeIdentifierIid());
@@ -309,6 +335,12 @@ onlineJobTyped<sepaOnlineTransfer> sepaCreditTransferEdit::getOnlineJobTyped() c
     sepaJob.task()->setPurpose(ui->purpose->toPlainText());
     sepaJob.task()->setEndToEndReference(ui->sepaReference->text());
 
+    // LH-F-20: transfer type + execution date. The date is only meaningful for a
+    // dated transfer; for any other type we store an invalid date.
+    const auto transferType = static_cast<sepaOnlineTransfer::TransferType>(ui->transferType->currentIndex());
+    sepaJob.task()->setTransferType(transferType);
+    sepaJob.task()->setExecutionDate((transferType == sepaOnlineTransfer::TransferType::Dated) ? ui->executionDate->date() : QDate());
+
     payeeIdentifiers::ibanBic accIdent;
     accIdent.setOwnerName(ui->beneficiaryName->text());
     accIdent.setIban(ui->beneficiaryIban->text());
@@ -330,6 +362,13 @@ void sepaCreditTransferEdit::setOnlineJob(const onlineJobTyped<sepaOnlineTransfe
     ui->beneficiaryName->setText(job.task()->beneficiaryTyped().ownerName());
     ui->beneficiaryIban->setText(job.task()->beneficiaryTyped().paperformatIban());
     ui->beneficiaryBankCode->setText(job.task()->beneficiaryTyped().storedBic());
+
+    // LH-F-20: restore transfer type + execution date (set the date first so the
+    // validation triggered by the index change sees it). setCurrentIndex emits
+    // currentIndexChanged -> transferTypeChanged(), which updates the row visibility.
+    ui->executionDate->setDate(job.task()->executionDate());
+    ui->transferType->setCurrentIndex(static_cast<int>(job.task()->transferType()));
+    transferTypeChanged();
 }
 
 bool sepaCreditTransferEdit::setOnlineJob(const onlineJob& job)
@@ -394,7 +433,74 @@ void sepaCreditTransferEdit::updateSettings()
     else
         m_requiredFields->remove(ui->beneficiaryName);
 
+    // LH-F-20: the transfer-type selector is shown only in SimpleMode, so in full
+    // mode the dialog is pixel-identical to upstream and the task stays Standard.
+    const bool simpleMode = MyMoneyFile::instance()->simpleMode();
+    ui->labelTransferType->setVisible(simpleMode);
+    ui->transferType->setVisible(simpleMode);
+
+    // Enable the Instant/Dated items only when the backend advertises the
+    // capability; the tooltips name AqBanking as the reason when unavailable.
+    if (auto* model = qobject_cast<QStandardItemModel*>(ui->transferType->model())) {
+        if (auto* instantItem = model->item(static_cast<int>(sepaOnlineTransfer::TransferType::Instant))) {
+            instantItem->setEnabled(settings->supportsInstantTransfer());
+            instantItem->setToolTip(settings->supportsInstantTransfer() ? QString() : i18n("Not supported by the installed banking backend (AqBanking)."));
+        }
+        if (auto* datedItem = model->item(static_cast<int>(sepaOnlineTransfer::TransferType::Dated))) {
+            datedItem->setEnabled(settings->supportsDatedTransfer());
+            datedItem->setToolTip(settings->supportsDatedTransfer()
+                                      ? QString()
+                                      : i18n("The banking backend (AqBanking) or your bank does not offer dated transfers for this account."));
+        }
+    }
+
+    // Re-evaluate the dated-transfer row visibility for the current selection.
+    transferTypeChanged();
+
     updateEveryStatus();
+}
+
+void sepaCreditTransferEdit::transferTypeChanged()
+{
+    // The execution-date row + compatibility hint appear only for a dated transfer
+    // in SimpleMode (in full mode the selector is hidden and the type is Standard).
+    const bool simpleMode = MyMoneyFile::instance()->simpleMode();
+    const bool dated = simpleMode && (ui->transferType->currentIndex() == static_cast<int>(sepaOnlineTransfer::TransferType::Dated));
+    ui->labelExecutionDate->setVisible(dated);
+    ui->executionDate->setVisible(dated);
+    ui->feedbackExecutionDate->setVisible(dated);
+    ui->labelDatedCompatHint->setVisible(dated);
+
+    executionDateChanged();
+    Q_EMIT validityChanged(getOnlineJobTyped().isValid());
+}
+
+void sepaCreditTransferEdit::executionDateChanged()
+{
+    // Only meaningful for a dated transfer; the date widget is hidden otherwise.
+    if (ui->transferType->currentIndex() != static_cast<int>(sepaOnlineTransfer::TransferType::Dated)) {
+        ui->feedbackExecutionDate->removeFeedback();
+        return;
+    }
+
+    QSharedPointer<const sepaOnlineTransfer::settings> settings = taskSettings();
+    const QDate date = ui->executionDate->date();
+    const int minLead = qMax(1, settings->minDatedTransferLeadDays());
+    const int maxLead = settings->maxDatedTransferLeadDays();
+
+    // Lead-time check in calendar days (an approximation of the FinTS bank-day
+    // setup time; kbanking and the bank are the authoritative backstop).
+    if (!date.isValid() || date < QDate::currentDate().addDays(minLead)) {
+        ui->feedbackExecutionDate->setFeedback(
+            eWidgets::ValidationFeedback::MessageType::Error,
+            i18np("The execution date must be at least one day in the future.", "The execution date must be at least %1 days in the future.", minLead));
+    } else if (maxLead > 0 && date > QDate::currentDate().addDays(maxLead)) {
+        ui->feedbackExecutionDate->setFeedback(
+            eWidgets::ValidationFeedback::MessageType::Error,
+            i18np("The execution date must be at most one day in the future.", "The execution date must be at most %1 days in the future.", maxLead));
+    } else {
+        ui->feedbackExecutionDate->removeFeedback();
+    }
 }
 
 void sepaCreditTransferEdit::beneficiaryIbanChanged(const QString& iban)
