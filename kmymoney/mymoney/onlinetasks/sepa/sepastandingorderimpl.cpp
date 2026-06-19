@@ -8,6 +8,7 @@
 #include <QVariant>
 #include <QXmlStreamReader>
 
+#include <QDateTime>
 #include <QHash>
 #include <QSet>
 
@@ -254,6 +255,10 @@ void mergeRetrievedStandingOrders(MyMoneyFile* file, const QString& accountId, c
         const auto it = incoming.constFind(task->bankOrderId());
         if (it != incoming.constEnd()) {
             onlineJob updated(new sepaStandingOrderImpl(*it.value()), job.id());
+            // Mark as a documentary record from the bank so the outbox treats it
+            // as read-only (not sendable, not editable) — the user acts on it via
+            // the Modify/Delete affordances, never by sending it.
+            updated.setBankAnswer(eMyMoney::OnlineJob::sendingState::acceptedByBank, QDateTime::currentDateTime());
             file->modifyOnlineJob(updated);
             handled.insert(task->bankOrderId());
         } else {
@@ -266,6 +271,7 @@ void mergeRetrievedStandingOrders(MyMoneyFile* file, const QString& accountId, c
         if (handled.contains(it.key()))
             continue;
         onlineJob added(new sepaStandingOrderImpl(*it.value()));
+        added.setBankAnswer(eMyMoney::OnlineJob::sendingState::acceptedByBank, QDateTime::currentDateTime());
         file->addOnlineJob(added);
     }
 }

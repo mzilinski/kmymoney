@@ -1116,10 +1116,18 @@ void KBanking::retrieveStandingOrders(const QString& accountId)
         return;
     }
 
-    // Flag the Abruf so importAccountInfo() upserts/prunes ONLY for this account
-    // during this dedicated run (never on an ordinary statement/balance update).
+    // Flag the Abruf so importAccountInfo() upserts ONLY for this account during
+    // this dedicated run (never on an ordinary statement/balance update). Clear
+    // the flag even if executeQueue() throws (a statement import in the same
+    // context can raise MyMoneyException) — a stale flag would otherwise make a
+    // later ordinary import touch the standing-order cache.
     m_standingOrderAbrufAccount = accountId;
-    executeQueue();
+    try {
+        executeQueue();
+    } catch (...) {
+        m_standingOrderAbrufAccount.clear();
+        throw;
+    }
     m_standingOrderAbrufAccount.clear();
 }
 
@@ -1925,7 +1933,15 @@ bool KBankingExt::importAccountInfo(AB_IMEXPORTER_CONTEXT *ctx,
             }
             so = strictFilter ? AB_Transaction_List_FindNextByType(so, AB_Transaction_TypeStandingOrder, 0) : AB_Transaction_List_FindNextByType(so, 0, 0);
         }
-        m_parent->storeRetrievedStandingOrders(kacc.id(), retrievedOrders);
+        // Only store/prune when at least one standing order was actually parsed.
+        // An empty result cannot be distinguished from a failed/rejected HKCDB or
+        // a context that carried no standing-order block, so treating empty as
+        // "the bank has none" would wrongly prune the whole cache on any failure
+        // or ordinary import. Empty => no-op (upsert-only semantics). A bank that
+        // truly drops to zero orders keeps a stale cache until the next non-empty
+        // Abruf — an accepted author-blind limitation (see LHF21-PLAN.md).
+        if (!retrievedOrders.isEmpty())
+            m_parent->storeRetrievedStandingOrders(kacc.id(), retrievedOrders);
     }
 
     // import them
