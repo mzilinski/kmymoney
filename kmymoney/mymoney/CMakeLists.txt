@@ -62,6 +62,8 @@ set(kmm_mymoney_LIB_SRCS
   set(onlineTask_a_SOURCES
   ./onlinetasks/sepa/sepaonlinetransferimpl.cpp
   ./onlinetasks/sepa/sepaonlinetransfer.cpp
+  ./onlinetasks/sepa/sepastandingorderimpl.cpp
+  ./onlinetasks/sepa/sepastandingorder.cpp
   ./onlinetasks/unavailabletask/tasks/unavailabletask.cpp
   )
 

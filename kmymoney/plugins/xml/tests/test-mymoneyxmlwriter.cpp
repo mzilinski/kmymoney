@@ -30,6 +30,8 @@
 #include "mymoneyfile.h"
 #include "mymoneyutils.h"
 #include "onlinetasks/sepa/sepaonlinetransferimpl.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
+#include "payeeidentifier/ibanbic/ibanbic.h"
 
 #include <QXmlStreamWriter>
 
@@ -200,5 +202,83 @@ void MyMoneyXmlWriterTest::testWriteSepaTransferType()
         sepaOnlineTransferImpl noDate;
         noDate.setTransferType(sepaOnlineTransfer::TransferType::Dated);
         QVERIFY(!noDate.isValid());
+    }
+}
+
+static QString writeStandingOrderToXml(const sepaStandingOrderImpl& task)
+{
+    QString out;
+    QXmlStreamWriter writer(&out);
+    writer.writeStartElement(QStringLiteral("onlineTask"));
+    task.writeXML(&writer);
+    writer.writeEndElement();
+    return out;
+}
+
+void MyMoneyXmlWriterTest::testWriteSepaStandingOrder()
+{
+    // LH-F-21: a monthly create order writes its recurrence block, omits the
+    // action attribute (Create is the default), and omits the optional
+    // last/next/bankOrderId fields.
+    {
+        sepaStandingOrderImpl task;
+        task.setPeriod(sepaStandingOrder::Period::Monthly);
+        task.setCycle(1);
+        task.setExecutionDay(1);
+        task.setFirstExecutionDate(QDate(2026, 8, 1));
+        const QString xml = writeStandingOrderToXml(task);
+        QVERIFY(xml.contains(QLatin1String("period=\"0\"")));
+        QVERIFY(xml.contains(QLatin1String("cycle=\"1\"")));
+        QVERIFY(xml.contains(QLatin1String("executionDay=\"1\"")));
+        QVERIFY(xml.contains(QLatin1String("firstExecutionDate=\"2026-08-01\"")));
+        QVERIFY(!xml.contains(QLatin1String("action=")));
+        QVERIFY(!xml.contains(QLatin1String("lastExecutionDate")));
+        QVERIFY(!xml.contains(QLatin1String("bankOrderId")));
+    }
+
+    // A modify order writes action + bankOrderId + nextExecutionDate.
+    {
+        sepaStandingOrderImpl task;
+        task.setAction(sepaStandingOrder::Action::Modify);
+        task.setExecutionDay(15);
+        task.setFirstExecutionDate(QDate(2026, 8, 1));
+        task.setBankOrderId(QStringLiteral("ORDER-42"));
+        task.setNextExecutionDate(QDate(2026, 9, 1));
+        const QString xml = writeStandingOrderToXml(task);
+        QVERIFY(xml.contains(QLatin1String("action=\"1\"")));
+        QVERIFY(xml.contains(QLatin1String("bankOrderId=\"ORDER-42\"")));
+        QVERIFY(xml.contains(QLatin1String("nextExecutionDate=\"2026-09-01\"")));
+
+        // The copy constructor (used by clone()) preserves every field.
+        const sepaStandingOrderImpl copy(task);
+        QVERIFY(copy.action() == sepaStandingOrder::Action::Modify);
+        QCOMPARE(copy.executionDay(), 15);
+        QCOMPARE(copy.bankOrderId(), QStringLiteral("ORDER-42"));
+        QCOMPARE(copy.nextExecutionDate(), QDate(2026, 9, 1));
+    }
+
+    // isValid() — deterministic schedule + payment checks.
+    {
+        payeeIdentifiers::ibanBic beneficiary;
+        beneficiary.setIban(QStringLiteral("DE89370400440532013000")); // checksum-valid test IBAN
+
+        sepaStandingOrderImpl task;
+        task.setBeneficiary(beneficiary);
+        task.setValue(MyMoneyMoney(50000, 100));
+        task.setPeriod(sepaStandingOrder::Period::Monthly);
+        task.setCycle(1);
+        // No executionDay / firstExecutionDate yet -> invalid.
+        QVERIFY(!task.isValid());
+
+        task.setExecutionDay(1);
+        task.setFirstExecutionDate(QDate(2026, 8, 1));
+        QVERIFY(task.isValid());
+
+        // Switching to Modify without a bank order id -> invalid again.
+        task.setAction(sepaStandingOrder::Action::Modify);
+        QVERIFY(!task.isValid());
+        task.setBankOrderId(QStringLiteral("ORDER-42"));
+        task.setNextExecutionDate(QDate(2026, 9, 1));
+        QVERIFY(task.isValid());
     }
 }

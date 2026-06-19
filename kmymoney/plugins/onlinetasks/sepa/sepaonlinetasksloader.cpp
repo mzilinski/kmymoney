@@ -9,6 +9,7 @@
 
 #include "mymoney/onlinejobadministration.h"
 #include "onlinetasks/sepa/sepaonlinetransferimpl.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
 #include "ui/sepacredittransferedit.h"
 
 K_PLUGIN_FACTORY_WITH_JSON(konlinetasks_sepa_factory, "kmymoney-sepaorders.json", registerPlugin<sepaOnlineTasksLoader>();
@@ -23,6 +24,9 @@ onlineTask* sepaOnlineTasksLoader::createOnlineTask(const QString& taskId) const
 {
     if (taskId == sepaOnlineTransferImpl::name())
         return new sepaOnlineTransferImpl;
+
+    if (taskId == sepaStandingOrderImpl::name())
+        return new sepaStandingOrderImpl;
 
     return nullptr;
 }

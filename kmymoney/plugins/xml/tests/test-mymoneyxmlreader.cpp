@@ -38,6 +38,7 @@
 
 #include "ibanbic/ibanbic.h"
 #include "onlinetasks/sepa/sepaonlinetransfer.h"
+#include "onlinetasks/sepa/sepastandingorder.h"
 #include "payeeidentifier/payeeidentifiertyped.h"
 #include "tasks/credittransfer.h"
 #include "tasks/onlinetask.h"
@@ -794,6 +795,13 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
         "<beneficiary bic=\"NASSDE55\" iban=\"DE08154711081547110815\" ownerName=\"Somebody\"/>"
         "</onlineTask>"
         "</ONLINEJOB>"
+        // LH-F-21: a SEPA standing order (Dauerauftrag) — its own task IID with a recurrence block
+        "<ONLINEJOB id=\"O000004\">"
+        "<onlineTask iid=\"org.kmymoney.creditTransfer.sepa.standingOrder\" originAccount=\"A000076\" purpose=\"Rent\" subTextKey=\"0\" "
+        "textKey=\"51\" value=\"50000/100\" period=\"0\" cycle=\"1\" executionDay=\"1\" firstExecutionDate=\"2026-08-01\">"
+        "<beneficiary bic=\"NASSDE55\" iban=\"DE08154711081547110815\" ownerName=\"Landlord\"/>"
+        "</onlineTask>"
+        "</ONLINEJOB>"
         "</ONLINEJOBS>");
 
     QCOMPARE(r->read(createFile(data)), true);
@@ -801,7 +809,7 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
     const auto model = MyMoneyFile::instance()->onlineJobsModel();
     const auto rows = model->rowCount();
 
-    QCOMPARE(rows, 2);
+    QCOMPARE(rows, 3);
 
     const auto onlineJob = model->itemById(QLatin1String("O000002"));
     QCOMPARE(onlineJob.id(), QLatin1String("O000002"));
@@ -830,4 +838,16 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
     onlineJobTyped<sepaOnlineTransfer> dated(datedJob);
     QVERIFY(dated.constTask()->transferType() == sepaOnlineTransfer::TransferType::Dated);
     QCOMPARE(dated.constTask()->executionDate(), QDate(2026, 7, 1));
+
+    // LH-F-21: the standing order decodes through its own task type + recurrence block.
+    const auto standingJob = model->itemById(QLatin1String("O000004"));
+    QCOMPARE(standingJob.taskIid(), QLatin1String("org.kmymoney.creditTransfer.sepa.standingOrder"));
+    onlineJobTyped<sepaStandingOrder> standing(standingJob);
+    QVERIFY(standing.constTask()->action() == sepaStandingOrder::Action::Create);
+    QVERIFY(standing.constTask()->period() == sepaStandingOrder::Period::Monthly);
+    QCOMPARE(standing.constTask()->cycle(), 1);
+    QCOMPARE(standing.constTask()->executionDay(), 1);
+    QCOMPARE(standing.constTask()->firstExecutionDate(), QDate(2026, 8, 1));
+    QCOMPARE(standing.constTask()->value().toDouble(), 500.0);
+    QCOMPARE(standing.constTask()->beneficiaryTyped().ownerName(), QLatin1String("Landlord"));
 }

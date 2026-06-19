@@ -11,7 +11,8 @@
                 }
             ],
             "Iids": [
-                "org.kmymoney.creditTransfer.sepa"
+                "org.kmymoney.creditTransfer.sepa",
+                "org.kmymoney.creditTransfer.sepa.standingOrder"
             ]
         },
         "StoragePlugin": {

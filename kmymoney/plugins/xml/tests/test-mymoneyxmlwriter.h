@@ -36,6 +36,7 @@ private Q_SLOTS:
     void init();
     void testWriteFileInfo();
     void testWriteSepaTransferType();
+    void testWriteSepaStandingOrder();
 };
 
 #endif // MYMONEYXMLWRITER_TEST_H
