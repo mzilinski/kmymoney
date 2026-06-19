@@ -75,7 +75,7 @@ public:
      * documentary records. No-op when the account does not advertise the command.
      * (The GET path is live-unverified — see LHF21-PLAN.md re-verification gate.)
      */
-    void retrieveStandingOrders(const QString& accountId);
+    void retrieveStandingOrders(const QString& accountId) override;
 
     void plug(KXMLGUIFactory* guiFactory) override;
     void unplug() override;

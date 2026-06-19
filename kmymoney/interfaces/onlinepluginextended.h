@@ -61,6 +61,17 @@ public:
      */
     virtual void sendOnlineJob(QList<onlineJob>& jobs) = 0;
 
+    /**
+     * @brief Retrieve the account's SEPA standing orders from the bank (LH-F-21).
+     *
+     * Non-pure with a no-op default so only backends that support it (kbanking)
+     * implement it; others ignore the request.
+     */
+    virtual void retrieveStandingOrders(const QString& accountId)
+    {
+        Q_UNUSED(accountId)
+    }
+
     virtual void plug(KXMLGUIFactory* guiFactory) override = 0;
     virtual void unplug() override = 0;
 

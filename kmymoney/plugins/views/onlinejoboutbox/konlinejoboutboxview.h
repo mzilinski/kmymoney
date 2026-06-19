@@ -34,6 +34,9 @@ enum class OnlineAction {
     DeleteOnlineJob,
     EditOnlineJob,
     SendOnlineJobs,
+    RetrieveStandingOrders, //!< LH-F-21 T2: retrieve standing orders from the bank
+    ModifyStandingOrder, //!< LH-F-21 T3: modify a retrieved standing order
+    DeleteStandingOrder, //!< LH-F-21 T3: delete a retrieved standing order
 };
 inline qHashSeedType qHash(const OnlineAction key, qHashSeedType seed)
 {
@@ -102,6 +105,13 @@ private Q_SLOTS:
     void slotOnlineJobLog();
     void slotOnlineJobLog(const QStringList& onlineJobIds);
     void slotNewCreditTransfer();
+
+    /** @brief LH-F-21 T2: trigger a bank retrieval of standing orders (SimpleMode). */
+    void slotRetrieveStandingOrders();
+    /** @brief LH-F-21 T3: open a Modify order seeded from the selected retrieved row. */
+    void slotModifyStandingOrder();
+    /** @brief LH-F-21 T3: confirm + send a Delete for the selected retrieved row. */
+    void slotDeleteStandingOrder();
 };
 
 #endif // KONLINEJOBOUTBOXVIEW_H

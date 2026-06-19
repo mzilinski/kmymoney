@@ -22,11 +22,12 @@
 // ----------------------------------------------------------------------------
 // KDE Includes
 
-#include <KLocalizedString>
-#include <KSharedConfig>
-#include <KConfigGroup>
-#include <KMessageBox>
 #include <KActionCollection>
+#include <KConfigGroup>
+#include <KLocalizedString>
+#include <KMessageBox>
+#include <KSharedConfig>
+#include <KStandardGuiItem>
 #include <KXMLGUIFactory>
 
 // ----------------------------------------------------------------------------
@@ -49,6 +50,7 @@
 #include "onlinejobsmodel.h"
 #include "onlinejobtyped.h"
 #include "onlinepluginextended.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
 
 #include "ui_konlinejoboutboxview.h"
 
@@ -162,6 +164,27 @@ public:
         transferForm->show();
     }
 
+    /**
+     * @brief The selected online job iff it is a read-only standing order
+     * retrieved from the bank (LH-F-21 T2); a null job otherwise.
+     */
+    onlineJob selectedRetrievedStandingOrder() const
+    {
+        const auto indexes = ui->m_onlineJobView->selectionModel()->selectedRows();
+        if (indexes.isEmpty())
+            return onlineJob();
+        const auto jobId = indexes.first().data(eMyMoney::Model::IdRole).toString();
+        if (jobId.isEmpty())
+            return onlineJob();
+        const onlineJob job = MyMoneyFile::instance()->getOnlineJob(jobId);
+        if (job.isNull() || job.taskIid() != sepaStandingOrderImpl::name())
+            return onlineJob();
+        const auto* task = dynamic_cast<const sepaStandingOrder*>(job.constTask());
+        if (task != nullptr && task->action() == sepaStandingOrder::Action::Retrieved)
+            return job;
+        return onlineJob();
+    }
+
     std::unique_ptr<Ui::KOnlineJobOutboxView> ui;
 
     /**
@@ -196,12 +219,35 @@ void KOnlineJobOutboxView::createActions(KXMLGUIFactory* guiFactory, KXMLGUIClie
         eMenu::OnlineAction id;
     };
 
-    const QVector<actionInfo> actionInfos {
-        {QStringLiteral("onlinejob_send"),    &KOnlineJobOutboxView::slotSendJobs,          i18n("Send transfer"),            Icon::MailSend,       eMenu::OnlineAction::SendOnlineJobs},
-        {QStringLiteral("onlinejob_new"),     &KOnlineJobOutboxView::slotNewCreditTransfer, i18n("New credit transfer"),      Icon::OnlineTransfer, eMenu::OnlineAction::AccountCreditTransfer},
-        {QStringLiteral("onlinejob_delete"),  &KOnlineJobOutboxView::slotRemoveJob,         i18n("Remove transfer"),          Icon::EditShred,      eMenu::OnlineAction::DeleteOnlineJob},
-        {QStringLiteral("onlinejob_edit"),    &KOnlineJobOutboxView::slotEditJob,           i18n("Edit transfer"),            Icon::DocumentEdit,   eMenu::OnlineAction::EditOnlineJob},
-        {QStringLiteral("onlinejob_log"),     &KOnlineJobOutboxView::slotOnlineJobLog,      i18n("Show log"),                 Icon::Empty,          eMenu::OnlineAction::LogOnlineJob},
+    const QVector<actionInfo> actionInfos{
+        {QStringLiteral("onlinejob_send"), &KOnlineJobOutboxView::slotSendJobs, i18n("Send transfer"), Icon::MailSend, eMenu::OnlineAction::SendOnlineJobs},
+        {QStringLiteral("onlinejob_new"),
+         &KOnlineJobOutboxView::slotNewCreditTransfer,
+         i18n("New credit transfer"),
+         Icon::OnlineTransfer,
+         eMenu::OnlineAction::AccountCreditTransfer},
+        {QStringLiteral("onlinejob_delete"),
+         &KOnlineJobOutboxView::slotRemoveJob,
+         i18n("Remove transfer"),
+         Icon::EditShred,
+         eMenu::OnlineAction::DeleteOnlineJob},
+        {QStringLiteral("onlinejob_edit"), &KOnlineJobOutboxView::slotEditJob, i18n("Edit transfer"), Icon::DocumentEdit, eMenu::OnlineAction::EditOnlineJob},
+        {QStringLiteral("onlinejob_log"), &KOnlineJobOutboxView::slotOnlineJobLog, i18n("Show log"), Icon::Empty, eMenu::OnlineAction::LogOnlineJob},
+        {QStringLiteral("standingorder_retrieve"),
+         &KOnlineJobOutboxView::slotRetrieveStandingOrders,
+         i18n("Retrieve standing orders"),
+         Icon::OnlineTransfer,
+         eMenu::OnlineAction::RetrieveStandingOrders},
+        {QStringLiteral("standingorder_modify"),
+         &KOnlineJobOutboxView::slotModifyStandingOrder,
+         i18n("Modify standing order"),
+         Icon::DocumentEdit,
+         eMenu::OnlineAction::ModifyStandingOrder},
+        {QStringLiteral("standingorder_delete"),
+         &KOnlineJobOutboxView::slotDeleteStandingOrder,
+         i18n("Delete standing order"),
+         Icon::EditShred,
+         eMenu::OnlineAction::DeleteStandingOrder},
     };
 
     Q_D(KOnlineJobOutboxView);
@@ -301,6 +347,18 @@ void KOnlineJobOutboxView::updateActions(const SelectedObjects& selections)
     d->m_actions[eMenu::OnlineAction::DeleteOnlineJob]->setEnabled(!selections.isEmpty(SelectedObjects::OnlineJob));
 
     d->m_actions[eMenu::OnlineAction::SendOnlineJobs]->setEnabled(sendableItems);
+
+    // LH-F-21 T2/T3: the standing-order actions exist only in SimpleMode, so a
+    // full-mode session's menu is unchanged (the actions are hidden, not just
+    // disabled). Retrieve is always available; Modify/Delete need a selected
+    // read-only (Retrieved) standing-order row.
+    const bool simpleMode = MyMoneyFile::instance()->simpleMode();
+    const bool retrievedSelected = simpleMode && !d->selectedRetrievedStandingOrder().isNull();
+    for (const auto id : {eMenu::OnlineAction::RetrieveStandingOrders, eMenu::OnlineAction::ModifyStandingOrder, eMenu::OnlineAction::DeleteStandingOrder})
+        d->m_actions[id]->setVisible(simpleMode);
+    d->m_actions[eMenu::OnlineAction::RetrieveStandingOrders]->setEnabled(simpleMode);
+    d->m_actions[eMenu::OnlineAction::ModifyStandingOrder]->setEnabled(retrievedSelected);
+    d->m_actions[eMenu::OnlineAction::DeleteStandingOrder]->setEnabled(retrievedSelected);
 }
 
 void KOnlineJobOutboxView::updateSelection()
@@ -615,4 +673,71 @@ void KOnlineJobOutboxView::slotNewCreditTransfer()
     connect(transferForm, &kOnlineTransferForm::acceptedForSend, this, qOverload<onlineJob>(&KOnlineJobOutboxView::slotOnlineJobSend));
     connect(transferForm, &QDialog::accepted, transferForm, &QObject::deleteLater);
     transferForm->show();
+}
+
+void KOnlineJobOutboxView::slotRetrieveStandingOrders()
+{
+    // LH-F-21 T2: ask each account's online backend to retrieve its standing
+    // orders. retrieveStandingOrders() is a no-op for accounts/backends that do
+    // not support it, so this is safe to call broadly. (GET path live-unverified.)
+    Q_D(KOnlineJobOutboxView);
+    if (!MyMoneyFile::instance()->simpleMode() || d->m_onlinePlugins == nullptr)
+        return;
+
+    QList<MyMoneyAccount> accounts;
+    MyMoneyFile::instance()->accountList(accounts);
+    for (const auto& account : std::as_const(accounts)) {
+        const QString provider = account.onlineBankingSettings().value(QStringLiteral("provider")).toLower();
+        if (provider.isEmpty())
+            continue;
+        const auto it = d->m_onlinePlugins->constFind(provider);
+        if (it == d->m_onlinePlugins->cend())
+            continue;
+        if (auto* pluginExt = dynamic_cast<KMyMoneyPlugin::OnlinePluginExtended*>(*it))
+            pluginExt->retrieveStandingOrders(account.id());
+    }
+}
+
+void KOnlineJobOutboxView::slotModifyStandingOrder()
+{
+    // LH-F-21 T3: seed an editable Modify job from the selected retrieved order
+    // and open it in the standing-order editor. The read-only record is never
+    // mutated; the bank re-syncs it on the next Abruf.
+    Q_D(KOnlineJobOutboxView);
+    const onlineJob retrievedJob = d->selectedRetrievedStandingOrder();
+    if (retrievedJob.isNull())
+        return;
+    const auto* retrieved = dynamic_cast<const sepaStandingOrderImpl*>(retrievedJob.constTask());
+    if (retrieved == nullptr)
+        return;
+
+    auto* modifyTask = new sepaStandingOrderImpl(*retrieved);
+    modifyTask->setAction(sepaStandingOrder::Action::Modify);
+    d->editJob(onlineJob(modifyTask));
+}
+
+void KOnlineJobOutboxView::slotDeleteStandingOrder()
+{
+    // LH-F-21 T3: confirm, then seed + send a Delete job for the selected
+    // retrieved order (no recurrence editor — a deletion only needs the bank's
+    // order reference).
+    Q_D(KOnlineJobOutboxView);
+    const onlineJob retrievedJob = d->selectedRetrievedStandingOrder();
+    if (retrievedJob.isNull())
+        return;
+    const auto* retrieved = dynamic_cast<const sepaStandingOrderImpl*>(retrievedJob.constTask());
+    if (retrieved == nullptr)
+        return;
+
+    if (KMessageBox::warningTwoActions(this,
+                                       i18n("Delete this standing order at the bank? This cannot be undone."),
+                                       i18n("Delete standing order"),
+                                       KStandardGuiItem::del(),
+                                       KStandardGuiItem::cancel())
+        != KMessageBox::PrimaryAction)
+        return;
+
+    auto* deleteTask = new sepaStandingOrderImpl(*retrieved);
+    deleteTask->setAction(sepaStandingOrder::Action::Delete);
+    slotOnlineJobSend(onlineJob(deleteTask));
 }
