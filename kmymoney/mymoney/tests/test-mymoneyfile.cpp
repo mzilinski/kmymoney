@@ -2490,6 +2490,219 @@ void MyMoneyFileTest::testDeriveOpeningDateDisabled()
     m->setSimpleMode(false);
 }
 
+void MyMoneyFileTest::testModeSwitchReversibility()
+{
+    // LH-N-03: switching between simplified and full bookkeeping mode must be
+    // lossless and must not corrupt data. The only SimpleMode behaviour that
+    // writes data is auto-balancing (it appends an imbalance counter-split to an
+    // under-specified transaction). This test proves that such a transaction is a
+    // perfectly valid balanced transaction in full mode, that a full-mode
+    // consistency check neither reports nor rewrites it, and that a complete
+    // round-trip (simplified -> full -> simplified) preserves every amount and
+    // memo without duplicating or dropping the imbalance split.
+    testAddAccounts();
+    setupBaseCurrency();
+
+    // --- Phase 1: create an under-specified transaction in simplified mode ---
+    m->setSimpleMode(true);
+    m->setAutoBalanceMode(true);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    t.setMemo(QStringLiteral("round-trip booking"));
+    MyMoneySplit assetSplit;
+    assetSplit.setAccountId(QStringLiteral("A000001"));
+    assetSplit.setMemo(QStringLiteral("asset side"));
+    assetSplit.setShares(MyMoneyMoney(-3300, 100));
+    assetSplit.setValue(MyMoneyMoney(-3300, 100));
+    t.addSplit(assetSplit);
+
+    MyMoneyFileTransaction ft;
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+    const auto imbAcc = static_cast<const MyMoneyFile*>(m)->imbalanceAccount(m->baseCurrency());
+    {
+        const auto parked = m->transaction(tid);
+        QCOMPARE(parked.splitCount(), static_cast<uint>(2));
+        QVERIFY(parked.splitSum().isZero());
+        QCOMPARE(parked.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(3300, 100));
+    }
+
+    // --- Phase 2: switch to full bookkeeping mode; stored data must be untouched ---
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+    m->setSimpleModeDeriveOpeningDate(false);
+
+    {
+        const auto inFull = m->transaction(tid);
+        QCOMPARE(inFull.splitCount(), static_cast<uint>(2));
+        QVERIFY(inFull.splitSum().isZero());
+        QCOMPARE(inFull.memo(), QStringLiteral("round-trip booking"));
+        QCOMPARE(inFull.splitByAccount(QStringLiteral("A000001")).value(), MyMoneyMoney(-3300, 100));
+        QCOMPARE(inFull.splitByAccount(QStringLiteral("A000001")).memo(), QStringLiteral("asset side"));
+        QCOMPARE(inFull.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(3300, 100));
+    }
+
+    // a full-mode consistency check must NOT report or modify the auto-balanced
+    // transaction (it is a balanced transaction like any other)
+    ft.restart();
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    {
+        const auto afterCheck = m->transaction(tid);
+        QCOMPARE(afterCheck.splitCount(), static_cast<uint>(2));
+        QVERIFY(afterCheck.splitSum().isZero());
+        QCOMPARE(afterCheck.splitByAccount(QStringLiteral("A000001")).value(), MyMoneyMoney(-3300, 100));
+        QCOMPARE(afterCheck.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(3300, 100));
+    }
+
+    // editing the transaction in full mode (here: changing a memo) stays a normal
+    // edit — no extra split is created, nothing is dropped
+    {
+        auto edit = m->transaction(tid);
+        edit.setMemo(QStringLiteral("edited in full mode"));
+        ft.restart();
+        try {
+            m->modifyTransaction(edit);
+            ft.commit();
+        } catch (const MyMoneyException& e) {
+            unexpectedException(e);
+        }
+        const auto edited = m->transaction(tid);
+        QCOMPARE(edited.splitCount(), static_cast<uint>(2));
+        QVERIFY(edited.splitSum().isZero());
+        QCOMPARE(edited.memo(), QStringLiteral("edited in full mode"));
+    }
+
+    // --- Phase 3: switch back to simplified mode and modify; the round-trip must
+    //     stay idempotent (no duplicated imbalance split, no lost data) ---
+    m->setSimpleMode(true);
+    m->setAutoBalanceMode(true);
+
+    {
+        auto edit = m->transaction(tid);
+        edit.setPostDate(QDate(2002, 3, 1));
+        ft.restart();
+        try {
+            m->modifyTransaction(edit);
+            ft.commit();
+        } catch (const MyMoneyException& e) {
+            unexpectedException(e);
+        }
+        const auto roundTripped = m->transaction(tid);
+        // still exactly two splits — the prior imbalance split was reused, not
+        // duplicated — balanced, with every amount preserved
+        QCOMPARE(roundTripped.splitCount(), static_cast<uint>(2));
+        QVERIFY(roundTripped.splitSum().isZero());
+        QCOMPARE(roundTripped.postDate(), QDate(2002, 3, 1));
+        QCOMPARE(roundTripped.splitByAccount(QStringLiteral("A000001")).value(), MyMoneyMoney(-3300, 100));
+        QCOMPARE(roundTripped.splitByAccount(QStringLiteral("A000001")).memo(), QStringLiteral("asset side"));
+        QCOMPARE(roundTripped.splitByAccount(imbAcc.id()).value(), MyMoneyMoney(3300, 100));
+        // and no second imbalance split sneaked in
+        int imbalanceSplits = 0;
+        const auto rtSplits = roundTripped.splits();
+        for (const auto& s : rtSplits) {
+            if (s.accountId() == imbAcc.id())
+                ++imbalanceSplits;
+        }
+        QCOMPARE(imbalanceSplits, 1);
+    }
+
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+}
+
+void MyMoneyFileTest::testEnableSimpleModeKeepsFullModeDataIntact()
+{
+    // LH-N-03 / LH-N-05: enabling simplified mode on a file authored in full mode
+    // must not retroactively rewrite existing, already-balanced transactions.
+    // Auto-balancing only runs when a transaction is added, modified, or repaired
+    // by the consistency check; flipping the mode flag alone changes nothing.
+    testAddAccounts();
+    setupBaseCurrency();
+
+    MyMoneyAccount expense;
+    expense.setName(QStringLiteral("Groceries"));
+    expense.setAccountType(eMyMoney::Account::Type::Expense);
+    MyMoneyFileTransaction ft;
+    try {
+        MyMoneyAccount expenseParent = m->expense();
+        m->addAccount(expense, expenseParent);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // a fully categorized, balanced two-split transaction created in full mode
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+
+    MyMoneyTransaction t;
+    t.setPostDate(QDate(2002, 2, 1));
+    MyMoneySplit assetSplit;
+    assetSplit.setAccountId(QStringLiteral("A000001"));
+    assetSplit.setShares(MyMoneyMoney(-1500, 100));
+    assetSplit.setValue(MyMoneyMoney(-1500, 100));
+    t.addSplit(assetSplit);
+    MyMoneySplit categorySplit;
+    categorySplit.setAccountId(expense.id());
+    categorySplit.setShares(MyMoneyMoney(1500, 100));
+    categorySplit.setValue(MyMoneyMoney(1500, 100));
+    t.addSplit(categorySplit);
+
+    ft.restart();
+    try {
+        m->addTransaction(t);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    const QString tid = t.id();
+
+    // enabling simplified mode + auto-balance must NOT touch the stored transaction
+    m->setSimpleMode(true);
+    m->setAutoBalanceMode(true);
+
+    {
+        const auto unchanged = m->transaction(tid);
+        QCOMPARE(unchanged.splitCount(), static_cast<uint>(2));
+        QVERIFY(unchanged.splitSum().isZero());
+        QCOMPARE(unchanged.splitByAccount(expense.id()).value(), MyMoneyMoney(1500, 100));
+    }
+
+    // a simplified-mode consistency check leaves the already-balanced transaction
+    // alone (no imbalance split appended)
+    ft.restart();
+    try {
+        m->consistencyCheck();
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    {
+        const auto afterCheck = m->transaction(tid);
+        QCOMPARE(afterCheck.splitCount(), static_cast<uint>(2));
+        QVERIFY(afterCheck.splitSum().isZero());
+        // positive whitelist: the two original splits only — no imbalance split
+        const auto splits = afterCheck.splits();
+        for (const auto& s : splits) {
+            QVERIFY(s.accountId() == QStringLiteral("A000001") || s.accountId() == expense.id());
+        }
+    }
+
+    m->setSimpleMode(false);
+    m->setAutoBalanceMode(false);
+}
+
 void MyMoneyFileTest::testModifyStdAccount()
 {
     QVERIFY(m->asset().currencyId().isEmpty());

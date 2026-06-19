@@ -80,6 +80,8 @@ private Q_SLOTS:
     void testConsistencyCheckSimpleModeNoAutoBalance();
     void testSimpleModeOpeningDateDerivation();
     void testDeriveOpeningDateDisabled();
+    void testModeSwitchReversibility();
+    void testEnableSimpleModeKeepsFullModeDataIntact();
     void testAddPrice();
     void testRemovePrice();
     void testGetPrice();
