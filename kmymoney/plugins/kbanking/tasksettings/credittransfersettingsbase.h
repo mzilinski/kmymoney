@@ -27,6 +27,9 @@ public:
         , _payeeNameLength(0)
         , _payeeNameMinLength(0)
         , m_endToEndReferenceLength(0)
+        , m_supportsDatedTransfer(false)
+        , m_minDatedTransferLeadDays(1)
+        , m_maxDatedTransferLeadDays(0)
     {}
 
     // Limits getter
@@ -60,6 +63,22 @@ public:
 
     virtual int endToEndReferenceLength() const final override {
         return m_endToEndReferenceLength;
+    }
+
+    // LH-F-20: dated-transfer capability, derived from the account's transaction
+    // limits for AB_Transaction_CommandSepaCreateDatedTransfer. supportsInstantTransfer()
+    // is intentionally left at the base default (false): AqBanking has no instant command.
+    bool supportsDatedTransfer() const final override
+    {
+        return m_supportsDatedTransfer;
+    }
+    int minDatedTransferLeadDays() const final override
+    {
+        return m_minDatedTransferLeadDays;
+    }
+    int maxDatedTransferLeadDays() const final override
+    {
+        return m_maxDatedTransferLeadDays;
     }
 
     // Checker
@@ -119,6 +138,18 @@ public:
         _allowedChars = characters;
     }
 
+    /**
+     * @brief Mark dated transfers as supported and record the bank's lead-time window.
+     * @param minLeadDays minimum days a dated transfer must lie in the future (>= 1)
+     * @param maxLeadDays maximum lead days; 0 means unknown/unbounded
+     */
+    void setDatedTransferLimits(int minLeadDays, int maxLeadDays)
+    {
+        m_supportsDatedTransfer = true;
+        m_minDatedTransferLeadDays = (minLeadDays > 0) ? minLeadDays : 1;
+        m_maxDatedTransferLeadDays = (maxLeadDays > 0) ? maxLeadDays : 0;
+    }
+
 private:
 
     /** @brief number of lines allowed in purpose */
@@ -147,6 +178,13 @@ private:
 
     /** @brief Number of chars allowed for sepa reference */
     int m_endToEndReferenceLength;
+
+    /** @brief Whether the account/backend offers dated transfers (LH-F-20) */
+    bool m_supportsDatedTransfer;
+    /** @brief Minimum lead days for a dated transfer */
+    int m_minDatedTransferLeadDays;
+    /** @brief Maximum lead days for a dated transfer; 0 = unknown/unbounded */
+    int m_maxDatedTransferLeadDays;
 };
 
 #endif // CREDITTRANSFERSETTINGSBASE_H

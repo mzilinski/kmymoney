@@ -29,9 +29,13 @@ class nationalAccount;
 
 /**
  * @brief AB_TransactionLimits_toSepaOnlineTaskSettings
- * @param aqlimits IN
+ * @param aqlimits IN limits for the ordinary SEPA credit transfer
+ * @param datedLimits IN optional limits for dated transfers (LH-F-20); when
+ *        non-null the resulting settings report supportsDatedTransfer()==true
+ *        and carry the bank's lead-time window
  */
-QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTaskSettings(const AB_TRANSACTION_LIMITS* aqlimits);
+QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTaskSettings(const AB_TRANSACTION_LIMITS* aqlimits,
+                                                                                           const AB_TRANSACTION_LIMITS* datedLimits = nullptr);
 
 /**
  * @brief AB_Transaction_SetRemoteAccount

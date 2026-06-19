@@ -810,7 +810,11 @@ IonlineTaskSettings::ptr KBanking::settings(QString accountId, QString taskName)
         const AB_TRANSACTION_LIMITS *limits=AB_AccountSpec_GetTransactionLimitsForCommand(abAcc, AB_Transaction_CommandSepaTransfer);
         if (limits == nullptr)
             return IonlineTaskSettings::ptr();
-        return AB_TransactionLimits_toSepaOnlineTaskSettings(limits).dynamicCast<IonlineTaskSettings>();
+        // LH-F-20: probe whether this account also offers dated transfers (HKCSE).
+        // On AqBanking versions/accounts without a dated-transfer job this is null,
+        // so the capability stays disabled (fail-closed).
+        const AB_TRANSACTION_LIMITS* datedLimits = AB_AccountSpec_GetTransactionLimitsForCommand(abAcc, AB_Transaction_CommandSepaCreateDatedTransfer);
+        return AB_TransactionLimits_toSepaOnlineTaskSettings(limits, datedLimits).dynamicCast<IonlineTaskSettings>();
     }
     return IonlineTaskSettings::ptr();
 }
@@ -844,8 +848,47 @@ bool KBanking::enqueTransaction(onlineJobTyped<sepaOnlineTransfer>& job)
 
     AB_TRANSACTION *abJob = AB_Transaction_new();
 
-    /* command */
-    AB_Transaction_SetCommand(abJob, AB_Transaction_CommandSepaTransfer);
+    /* command (LH-F-20: pick the AB command from the task's transfer type) */
+    switch (job.constTask()->transferType()) {
+    case sepaOnlineTransfer::TransferType::Standard:
+        AB_Transaction_SetCommand(abJob, AB_Transaction_CommandSepaTransfer);
+        break;
+
+    case sepaOnlineTransfer::TransferType::Dated: {
+        const AB_TRANSACTION_LIMITS* datedLimits = AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateDatedTransfer);
+        const QDate executionDate = job.constTask()->executionDate();
+        // Fail closed: no dated-transfer support for this account/backend, no
+        // execution date, or a date outside the bank's setup-time window
+        // (calendar-day approximation of the FinTS bank-day lead time — the bank
+        // would reject it definitively). We never silently fall back to an
+        // immediate transfer.
+        const int minLead = datedLimits ? qMax(1, AB_TransactionLimits_GetMinValueSetupTime(datedLimits)) : 0;
+        const int maxLead = datedLimits ? AB_TransactionLimits_GetMaxValueSetupTime(datedLimits) : 0;
+        if (!datedLimits || !executionDate.isValid() || executionDate < QDate::currentDate().addDays(minLead)
+            || (maxLead > 0 && executionDate > QDate::currentDate().addDays(maxLead))) {
+            job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                               QStringLiteral("KBanking"),
+                                               i18n("Dated transfers are not supported by the bank or banking backend for this "
+                                                    "account, or the execution date is not accepted. The order was not sent.")));
+            AB_Transaction_free(abJob);
+            return false;
+        }
+        AB_Transaction_SetCommand(abJob, AB_Transaction_CommandSepaCreateDatedTransfer);
+        GWEN_DATE* gd = GWEN_Date_fromGregorian(executionDate.year(), executionDate.month(), executionDate.day());
+        AB_Transaction_SetDate(abJob, gd);
+        GWEN_Date_free(gd);
+        break;
+    }
+
+    case sepaOnlineTransfer::TransferType::Instant:
+        // No SEPA Instant command exists in the installed AqBanking version.
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                           QStringLiteral("KBanking"),
+                                           i18n("Instant transfers (SEPA Instant) are not supported by the installed AqBanking "
+                                                "version. The order was not sent.")));
+        AB_Transaction_free(abJob);
+        return false;
+    }
 
     // Origin Account
     AB_Transaction_SetUniqueAccountId(abJob, AB_AccountSpec_GetUniqueId(abAccount));

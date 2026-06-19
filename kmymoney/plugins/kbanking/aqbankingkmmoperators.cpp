@@ -29,7 +29,8 @@ static QString sepaChars()
 }
 
 /** @todo Check if AB_TransactionLimits_GetMaxLenCustomerReference really is the limit for the sepa reference */
-QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTaskSettings(const AB_TRANSACTION_LIMITS* aqlimits)
+QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTaskSettings(const AB_TRANSACTION_LIMITS* aqlimits,
+                                                                                           const AB_TRANSACTION_LIMITS* datedLimits)
 {
     Q_ASSERT(aqlimits);
 
@@ -59,6 +60,13 @@ QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTa
     settings->setEndToEndReferenceLength(32);
 
     settings->setAllowedChars(sepaChars());
+
+    // LH-F-20: if the account exposes dated-transfer limits, advertise the
+    // capability and carry the bank's lead-time window (calendar-day
+    // approximation of the FinTS bank-day setup time).
+    if (datedLimits) {
+        settings->setDatedTransferLimits(AB_TransactionLimits_GetMinValueSetupTime(datedLimits), AB_TransactionLimits_GetMaxValueSetupTime(datedLimits));
+    }
 
     return settings.dynamicCast<sepaOnlineTransfer::settings>();
 }
