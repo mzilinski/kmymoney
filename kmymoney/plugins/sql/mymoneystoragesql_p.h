@@ -45,46 +45,47 @@
 // ----------------------------------------------------------------------------
 // Project Includes
 
-#include "mymoneyfile.h"
-#include "onlinejobadministration.h"
-#include "onlinetasks/interfaces/tasks/onlinetask.h"
-#include "mymoneycostcenter.h"
-#include "mymoneyexception.h"
-#include "mymoneyinstitution.h"
+#include "accountsmodel.h"
+#include "budgetsmodel.h"
+#include "institutionsmodel.h"
+#include "journalmodel.h"
 #include "mymoneyaccount.h"
-#include "mymoneysecurity.h"
-#include "mymoneymoney.h"
-#include "mymoneyschedule.h"
-#include "mymoneypayee.h"
-#include "mymoneytag.h"
-#include "mymoneysplit.h"
-#include "mymoneytransaction.h"
-#include "mymoneytransactionfilter.h"
 #include "mymoneybudget.h"
-#include "mymoneyreport.h"
-#include "mymoneyprice.h"
-#include "mymoneyutils.h"
+#include "mymoneycostcenter.h"
 #include "mymoneydbdef.h"
 #include "mymoneydbdriver.h"
-#include "payeeidentifierdata.h"
+#include "mymoneyenums.h"
+#include "mymoneyexception.h"
+#include "mymoneyfile.h"
+#include "mymoneyinstitution.h"
+#include "mymoneymoney.h"
+#include "mymoneypayee.h"
+#include "mymoneyprice.h"
+#include "mymoneyreport.h"
+#include "mymoneyschedule.h"
+#include "mymoneysecurity.h"
+#include "mymoneysplit.h"
+#include "mymoneytag.h"
+#include "mymoneytransaction.h"
+#include "mymoneytransactionfilter.h"
+#include "mymoneyutils.h"
+#include "onlinejobadministration.h"
+#include "onlinejobsmodel.h"
+#include "onlinetasks/interfaces/tasks/onlinetask.h"
+#include "onlinetasks/sepa/sepaonlinetransferimpl.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
+#include "parametersmodel.h"
 #include "payeeidentifier.h"
-#include "payeeidentifiertyped.h"
 #include "payeeidentifier/ibanbic/ibanbic.h"
 #include "payeeidentifier/nationalaccount/nationalaccount.h"
-#include "onlinetasks/sepa/sepaonlinetransferimpl.h"
-#include "xmlstoragehelper.h"
-#include "mymoneyenums.h"
-#include "parametersmodel.h"
-#include "institutionsmodel.h"
-#include "accountsmodel.h"
+#include "payeeidentifierdata.h"
+#include "payeeidentifiertyped.h"
 #include "payeesmodel.h"
-#include "securitiesmodel.h"
+#include "pricemodel.h"
 #include "reportsmodel.h"
 #include "schedulesmodel.h"
-#include "journalmodel.h"
-#include "pricemodel.h"
-#include "budgetsmodel.h"
-#include "onlinejobsmodel.h"
+#include "securitiesmodel.h"
+#include "xmlstoragehelper.h"
 
 using namespace eMyMoney;
 
@@ -927,6 +928,11 @@ public:
 
         if (!clearTable(QStringLiteral("kmmSepaOrders"), query))
             throw MYMONEYEXCEPTIONSQL("Clean kmmSepaOrders table");
+
+        // LH-F-21: clearTable tolerates a not-yet-created side table (it checks
+        // the driver's table list and only warns when absent).
+        if (!clearTable(QStringLiteral("kmmStandingOrders"), query))
+            throw MYMONEYEXCEPTIONSQL("Clean kmmStandingOrders table");
 
         if (!clearTable(QStringLiteral("kmmNationalAccountNumber"), query))
             throw MYMONEYEXCEPTIONSQL("Clean kmmNationalAccountNumber table");
@@ -2886,6 +2892,8 @@ public:
             rc = setupNationalAccount(*q);
         else if (iid == sepaOnlineTransferImpl::name())
             rc = setupSepaOnlineTransfer(*q);
+        else if (iid == sepaStandingOrderImpl::name())
+            rc = setupSepaStandingOrder(*q);
         else
             rc = false;
         return rc;
@@ -3099,6 +3107,163 @@ public:
         return false;
     }
 
+    // LH-F-21: persistence for SEPA standing orders. kmmStandingOrders is a side
+    // table created lazily on the first standing-order write (like kmmSepaOrders),
+    // tracked under its own kmmPluginInfo iid so its version is independent.
+    bool setupSepaStandingOrder(QSqlDatabase connection)
+    {
+        auto iid = QLatin1String("org.kmymoney.creditTransfer.sepa.standingOrder.sqlStoragePlugin");
+        QSqlQuery query = QSqlQuery(connection);
+        query.prepare("SELECT versionMajor FROM kmmPluginInfo WHERE iid = ?");
+        query.bindValue(0, iid);
+        if (!query.exec()) {
+            qWarning("Could not execute query for sepaStandingOrderStoragePlugin: %s", qPrintable(query.lastError().text()));
+            return false;
+        }
+
+        int currentVersion = 0;
+        if (query.next())
+            currentVersion = query.value(0).toInt();
+
+        if (currentVersion < 1) {
+            if (!query.exec("DROP TABLE IF EXISTS kmmStandingOrders;"))
+                return false;
+
+            if (!query.exec("CREATE TABLE kmmStandingOrders ("
+                            "  id varchar(32) NOT NULL PRIMARY KEY REFERENCES kmmOnlineJobs( id ) ON UPDATE CASCADE ON DELETE CASCADE,"
+                            "  originAccount varchar(32) REFERENCES kmmAccounts( id ) ON UPDATE CASCADE ON DELETE SET NULL,"
+                            "  value text,"
+                            "  purpose text,"
+                            "  endToEndReference varchar(35),"
+                            "  beneficiaryName varchar(27),"
+                            "  beneficiaryIban varchar(32),"
+                            "  beneficiaryBic char(11),"
+                            "  textKey int,"
+                            "  subTextKey int,"
+                            "  action int DEFAULT 0,"
+                            "  period int DEFAULT 0,"
+                            "  cycle int,"
+                            "  executionDay int,"
+                            "  firstExecutionDate date,"
+                            "  lastExecutionDate date,"
+                            "  nextExecutionDate date,"
+                            "  bankOrderId varchar(35)"
+                            " );")) {
+                qWarning("Error while creating table kmmStandingOrders: %s", qPrintable(query.lastError().text()));
+                return false;
+            }
+
+            query.prepare("DELETE FROM kmmPluginInfo WHERE iid = ?;");
+            query.bindValue(0, iid);
+            query.exec();
+
+            query.prepare("INSERT INTO kmmPluginInfo (iid, versionMajor, versionMinor, uninstallQuery) VALUES(?, ?, ?, ?)");
+            query.bindValue(0, iid);
+            query.bindValue(1, 1);
+            query.bindValue(2, 0);
+            query.bindValue(3, "DROP TABLE kmmStandingOrders;");
+            if (query.exec())
+                return true;
+            qWarning("Error while inserting kmmPluginInfo for '%s': %s", qPrintable(iid), qPrintable(query.lastError().text()));
+            return false;
+        }
+
+        switch (currentVersion) {
+        case 1:
+            return true;
+        }
+
+        return false;
+    }
+
+    bool actOnSepaStandingOrderObjectInSQL(SQLAction action, const onlineTask& obj, const QString& id)
+    {
+        Q_Q(MyMoneyStorageSql);
+        QSqlQuery query(*q);
+        const auto& task = dynamic_cast<const sepaStandingOrderImpl&>(obj);
+
+        auto dateOrNull = [](const QDate& d) -> QVariant {
+            return d.isValid() ? QVariant(d.toString(Qt::ISODate)) : QVariant();
+        };
+
+        auto bindValuesToQuery = [&]() {
+            auto value = task.value().toString();
+            if (value.isEmpty())
+                value = QStringLiteral("0");
+            query.bindValue(":id", id);
+            query.bindValue(":originAccount", task.responsibleAccount());
+            query.bindValue(":value", value);
+            query.bindValue(":purpose", task.purpose());
+            query.bindValue(":endToEndReference", (task.endToEndReference().isEmpty()) ? QVariant() : QVariant::fromValue(task.endToEndReference()));
+            query.bindValue(":beneficiaryName", task.beneficiaryTyped().ownerName());
+            query.bindValue(":beneficiaryIban", task.beneficiaryTyped().electronicIban());
+            query.bindValue(":beneficiaryBic",
+                            (task.beneficiaryTyped().storedBic().isEmpty()) ? QVariant() : QVariant::fromValue(task.beneficiaryTyped().storedBic()));
+            query.bindValue(":textKey", task.textKey());
+            query.bindValue(":subTextKey", task.subTextKey());
+            query.bindValue(":action", static_cast<int>(task.action()));
+            query.bindValue(":period", static_cast<int>(task.period()));
+            query.bindValue(":cycle", task.cycle());
+            query.bindValue(":executionDay", task.executionDay());
+            query.bindValue(":firstExecutionDate", dateOrNull(task.firstExecutionDate()));
+            query.bindValue(":lastExecutionDate", dateOrNull(task.lastExecutionDate()));
+            query.bindValue(":nextExecutionDate", dateOrNull(task.nextExecutionDate()));
+            query.bindValue(":bankOrderId", (task.bankOrderId().isEmpty()) ? QVariant() : QVariant::fromValue(task.bankOrderId()));
+        };
+
+        switch (action) {
+        case SQLAction::Save:
+            query.prepare(
+                "INSERT INTO kmmStandingOrders ("
+                " id, originAccount, value, purpose, endToEndReference, beneficiaryName, beneficiaryIban, "
+                " beneficiaryBic, textKey, subTextKey, action, period, cycle, executionDay, "
+                " firstExecutionDate, lastExecutionDate, nextExecutionDate, bankOrderId) "
+                " VALUES( :id, :originAccount, :value, :purpose, :endToEndReference, :beneficiaryName, :beneficiaryIban, "
+                "         :beneficiaryBic, :textKey, :subTextKey, :action, :period, :cycle, :executionDay, "
+                "         :firstExecutionDate, :lastExecutionDate, :nextExecutionDate, :bankOrderId ) ");
+            bindValuesToQuery();
+            if (!query.exec()) {
+                qWarning("Error while saving standing order '%s': %s", qPrintable(id), qPrintable(query.lastError().text()));
+                return false;
+            }
+            return true;
+
+        case SQLAction::Modify:
+            query.prepare(
+                "UPDATE kmmStandingOrders SET"
+                " originAccount = :originAccount,"
+                " value = :value,"
+                " purpose = :purpose,"
+                " endToEndReference = :endToEndReference,"
+                " beneficiaryName = :beneficiaryName,"
+                " beneficiaryIban = :beneficiaryIban,"
+                " beneficiaryBic = :beneficiaryBic,"
+                " textKey = :textKey,"
+                " subTextKey = :subTextKey,"
+                " action = :action,"
+                " period = :period,"
+                " cycle = :cycle,"
+                " executionDay = :executionDay,"
+                " firstExecutionDate = :firstExecutionDate,"
+                " lastExecutionDate = :lastExecutionDate,"
+                " nextExecutionDate = :nextExecutionDate,"
+                " bankOrderId = :bankOrderId "
+                " WHERE id = :id");
+            bindValuesToQuery();
+            if (!query.exec()) {
+                qWarning("Could not modify standing order '%s': %s", qPrintable(id), qPrintable(query.lastError().text()));
+                return false;
+            }
+            return true;
+
+        case SQLAction::Remove:
+            query.prepare("DELETE FROM kmmStandingOrders WHERE id = ?");
+            query.bindValue(0, id);
+            return query.exec();
+        }
+        return false;
+    }
+
     bool actOnIBANBICObjectInSQL(SQLAction action, const payeeIdentifier &obj)
     {
         payeeIdentifierTyped<payeeIdentifiers::ibanBic> payeeIdentifier = payeeIdentifierTyped<payeeIdentifiers::ibanBic>(obj);
@@ -3294,6 +3459,8 @@ public:
 
         if (obj.taskName() == sepaOnlineTransferImpl::name())
             isSuccessfull = actOnSepaOnlineTransferObjectInSQL(action, obj, id);
+        else if (obj.taskName() == sepaStandingOrderImpl::name())
+            isSuccessfull = actOnSepaStandingOrderObjectInSQL(action, obj, id);
 
         if (!isSuccessfull) {
             switch (action) {
@@ -3399,6 +3566,67 @@ public:
         return nullptr;
     }
 
+    onlineTask* createSepaStandingOrderObject(QSqlDatabase connection, const QString& onlineJobId) const
+    {
+        Q_ASSERT(!onlineJobId.isEmpty());
+        Q_ASSERT(connection.isOpen());
+
+        // Guard against a database in which the side table was never created (a
+        // downgrade/upgrade edge case): the read path does not run setupStoragePlugin,
+        // so a SELECT on a missing table would fail. Return nullptr -> unavailableTask.
+        if (!connection.driver()->tables(QSql::Tables).contains(QLatin1String("kmmStandingOrders")))
+            return nullptr;
+
+        // SELECT * + QSqlRecord::indexOf, tolerant of older/narrower schemas.
+        QSqlQuery query("SELECT * FROM kmmStandingOrders WHERE id = ?", connection);
+        query.bindValue(0, onlineJobId);
+        if (query.exec() && query.next()) {
+            const QSqlRecord rec = query.record();
+            const auto str = [&](const char* col) {
+                const int idx = rec.indexOf(QLatin1String(col));
+                return (idx != -1) ? query.value(idx).toString() : QString();
+            };
+            const auto integer = [&](const char* col, int dflt) {
+                const int idx = rec.indexOf(QLatin1String(col));
+                return (idx != -1 && !query.value(idx).isNull()) ? query.value(idx).toInt() : dflt;
+            };
+            const auto date = [&](const char* col) {
+                const int idx = rec.indexOf(QLatin1String(col));
+                return (idx != -1 && !query.value(idx).isNull()) ? QDate::fromString(query.value(idx).toString(), Qt::ISODate) : QDate();
+            };
+
+            sepaStandingOrderImpl* task = new sepaStandingOrderImpl();
+            task->setOriginAccount(str("originAccount"));
+            task->setValue(MyMoneyMoney(str("value")));
+            task->setPurpose(str("purpose"));
+            task->setEndToEndReference(str("endToEndReference"));
+            task->setTextKey(integer("textKey", 51));
+            task->setSubTextKey(integer("subTextKey", 0));
+
+            const int rawAction = integer("action", 0);
+            task->setAction(rawAction == static_cast<int>(sepaStandingOrder::Action::Modify)       ? sepaStandingOrder::Action::Modify
+                                : rawAction == static_cast<int>(sepaStandingOrder::Action::Delete) ? sepaStandingOrder::Action::Delete
+                                                                                                   : sepaStandingOrder::Action::Create);
+            task->setPeriod((integer("period", 0) == static_cast<int>(sepaStandingOrder::Period::Weekly)) ? sepaStandingOrder::Period::Weekly
+                                                                                                          : sepaStandingOrder::Period::Monthly);
+            task->setCycle(integer("cycle", 1));
+            task->setExecutionDay(integer("executionDay", 0));
+            task->setFirstExecutionDate(date("firstExecutionDate"));
+            task->setLastExecutionDate(date("lastExecutionDate"));
+            task->setNextExecutionDate(date("nextExecutionDate"));
+            task->setBankOrderId(str("bankOrderId"));
+
+            payeeIdentifiers::ibanBic beneficiary;
+            beneficiary.setOwnerName(str("beneficiaryName"));
+            beneficiary.setIban(str("beneficiaryIban"));
+            beneficiary.setBic(str("beneficiaryBic"));
+            task->setBeneficiary(beneficiary);
+            return task;
+        }
+
+        return nullptr;
+    }
+
     onlineTask* createOnlineTaskObject(const QString& iid, const QString& onlineTaskId, QSqlDatabase connection) const
     {
         onlineTask* taskOnline = nullptr;
@@ -3406,6 +3634,9 @@ public:
             // @todo This is probably memory leak but for now it works alike to original code
             onlineJobAdministration::instance()->registerOnlineTask(new sepaOnlineTransferImpl);
             taskOnline = createSepaOnlineTransferObject(connection, onlineTaskId);
+        } else if (iid == sepaStandingOrderImpl::name()) {
+            onlineJobAdministration::instance()->registerOnlineTask(new sepaStandingOrderImpl);
+            taskOnline = createSepaStandingOrderObject(connection, onlineTaskId);
         }
         if (!taskOnline)
             qWarning("In the file is a onlineTask for which I could not find the plugin ('%s')", qPrintable(iid));
