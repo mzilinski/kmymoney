@@ -310,6 +310,9 @@ sepaCreditTransferEdit::~sepaCreditTransferEdit()
     disconnect(ui->value, &AmountEdit::amountChanged, this, &sepaCreditTransferEdit::valueChanged);
     disconnect(ui->sepaReference, &KLineEdit::textChanged, this, &sepaCreditTransferEdit::endToEndReferenceChanged);
     disconnect(ui->purpose, &KMyMoneyTextEdit::textChanged, this, &sepaCreditTransferEdit::purposeChanged);
+    // LH-F-20 widgets: same teardown precaution — their slots dereference ui->...
+    disconnect(ui->transferType, &QComboBox::currentIndexChanged, this, &sepaCreditTransferEdit::transferTypeChanged);
+    disconnect(ui->executionDate, &KMyMoneyDateEdit::dateChanged, this, &sepaCreditTransferEdit::executionDateChanged);
     delete ui;
 }
 
@@ -472,7 +475,24 @@ void sepaCreditTransferEdit::transferTypeChanged()
     ui->labelDatedCompatHint->setVisible(dated);
 
     executionDateChanged();
-    Q_EMIT validityChanged(getOnlineJobTyped().isValid());
+    Q_EMIT validityChanged(isValid());
+}
+
+bool sepaCreditTransferEdit::executionDateWithinLimits() const
+{
+    if (ui->transferType->currentIndex() != static_cast<int>(sepaOnlineTransfer::TransferType::Dated))
+        return true;
+
+    const auto settings = getOnlineJobTyped().constTask()->getSettings();
+    const QDate date = ui->executionDate->date();
+    const int minLead = qMax(1, settings->minDatedTransferLeadDays());
+    const int maxLead = settings->maxDatedTransferLeadDays();
+
+    if (!date.isValid() || date < QDate::currentDate().addDays(minLead))
+        return false;
+    if (maxLead > 0 && date > QDate::currentDate().addDays(maxLead))
+        return false;
+    return true;
 }
 
 void sepaCreditTransferEdit::executionDateChanged()
@@ -480,6 +500,7 @@ void sepaCreditTransferEdit::executionDateChanged()
     // Only meaningful for a dated transfer; the date widget is hidden otherwise.
     if (ui->transferType->currentIndex() != static_cast<int>(sepaOnlineTransfer::TransferType::Dated)) {
         ui->feedbackExecutionDate->removeFeedback();
+        Q_EMIT validityChanged(isValid());
         return;
     }
 
@@ -489,7 +510,8 @@ void sepaCreditTransferEdit::executionDateChanged()
     const int maxLead = settings->maxDatedTransferLeadDays();
 
     // Lead-time check in calendar days (an approximation of the FinTS bank-day
-    // setup time; kbanking and the bank are the authoritative backstop).
+    // setup time; kbanking and the bank are the authoritative backstop). The
+    // outcome also gates Send/Enqueue through isValid()/executionDateWithinLimits().
     if (!date.isValid() || date < QDate::currentDate().addDays(minLead)) {
         ui->feedbackExecutionDate->setFeedback(
             eWidgets::ValidationFeedback::MessageType::Error,
@@ -501,6 +523,8 @@ void sepaCreditTransferEdit::executionDateChanged()
     } else {
         ui->feedbackExecutionDate->removeFeedback();
     }
+
+    Q_EMIT validityChanged(isValid());
 }
 
 void sepaCreditTransferEdit::beneficiaryIbanChanged(const QString& iban)

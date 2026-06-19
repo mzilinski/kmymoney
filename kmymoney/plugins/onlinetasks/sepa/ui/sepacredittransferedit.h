@@ -45,7 +45,11 @@ public:
     }
 
     bool isValid() const final override {
-        return getOnlineJobTyped().isValid();
+        // The engine task's isValid() stays deterministic (it only rejects a
+        // dated transfer without a date). The editor additionally enforces the
+        // dated lead-time window, so Send/Enqueue is gated on the same condition
+        // the user sees flagged (LH-F-20).
+        return getOnlineJobTyped().isValid() && executionDateWithinLimits();
     }
 
     bool isReadOnly() const final override {
@@ -112,6 +116,13 @@ private:
     bool m_showAllErrors;
 
     QSharedPointer<const sepaOnlineTransfer::settings> taskSettings();
+
+    /**
+     * @brief Whether the current selection's execution date is acceptable.
+     * Always true unless a dated transfer is selected with a missing date or a
+     * date outside the backend's lead-time window (LH-F-20).
+     */
+    bool executionDateWithinLimits() const;
 };
 
 #endif // SEPACREDITTRANSFEREDIT_H

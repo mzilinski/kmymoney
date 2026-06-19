@@ -279,7 +279,10 @@ sepaOnlineTransfer* sepaOnlineTransferImpl::createFromXml(QXmlStreamReader* read
         task->_transferType = TransferType::Dated;
     else
         task->_transferType = TransferType::Standard;
-    task->_executionDate = QDate::fromString(MyMoneyXmlHelper::readStringAttribute(reader, QLatin1String("executionDate")), Qt::ISODate);
+    // The execution date is only meaningful for a dated transfer; for any other
+    // type it stays invalid (writeXML never emits it there anyway).
+    if (task->_transferType == TransferType::Dated)
+        task->_executionDate = QDate::fromString(MyMoneyXmlHelper::readStringAttribute(reader, QLatin1String("executionDate")), Qt::ISODate);
 
     payeeIdentifiers::ibanBic beneficiary;
     payeeIdentifiers::ibanBic* beneficiaryPtr = nullptr;

@@ -3212,9 +3212,12 @@ public:
             query.bindValue(":textKey", task.textKey());
             query.bindValue(":subTextKey", task.subTextKey());
             query.bindValue(":transferType", static_cast<int>(task.transferType()));
+            // Store the date as an ISODate string (and NULL otherwise), matching the
+            // convention every other date column in this storage layer uses.
             query.bindValue(":executionDate",
-                            (task.transferType() == sepaOnlineTransfer::TransferType::Dated && task.executionDate().isValid()) ? QVariant(task.executionDate())
-                                                                                                                               : QVariant());
+                            (task.transferType() == sepaOnlineTransfer::TransferType::Dated && task.executionDate().isValid())
+                                ? QVariant(task.executionDate().toString(Qt::ISODate))
+                                : QVariant());
         };
 
         switch(action) {
@@ -3383,7 +3386,7 @@ public:
             }
             const int executionDateIdx = rec.indexOf(QLatin1String("executionDate"));
             if (executionDateIdx != -1 && !query.value(executionDateIdx).isNull())
-                task->setExecutionDate(query.value(executionDateIdx).toDate());
+                task->setExecutionDate(QDate::fromString(query.value(executionDateIdx).toString(), Qt::ISODate));
 
             payeeIdentifiers::ibanBic beneficiary;
             beneficiary.setOwnerName(query.value(rec.indexOf(QLatin1String("beneficiaryName"))).toString());
