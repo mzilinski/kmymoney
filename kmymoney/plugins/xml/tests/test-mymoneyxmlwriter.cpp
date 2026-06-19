@@ -29,6 +29,9 @@
 #include "../mymoneyxmlwriter.h"
 #include "mymoneyfile.h"
 #include "mymoneyutils.h"
+#include "onlinetasks/sepa/sepaonlinetransferimpl.h"
+
+#include <QXmlStreamWriter>
 
 #define KMMCOMPARE(actual, expected, _file, _line)                                                                                                             \
     do {                                                                                                                                                       \
@@ -144,4 +147,58 @@ void MyMoneyXmlWriterTest::testWriteFileInfo()
     ft1.commit();
 
     writeAndCompare(m_file, QLatin1String("testfile2.xml"));
+}
+
+// Helper: serialize a sepa task's <onlineTask> element to a string.
+static QString writeSepaTaskToXml(const sepaOnlineTransferImpl& task)
+{
+    QString out;
+    QXmlStreamWriter writer(&out);
+    writer.writeStartElement(QStringLiteral("onlineTask"));
+    task.writeXML(&writer);
+    writer.writeEndElement();
+    return out;
+}
+
+void MyMoneyXmlWriterTest::testWriteSepaTransferType()
+{
+    // LH-F-20 byte gate: a default (Standard) task must NOT emit the new
+    // transferType/executionDate attributes, so files that never used the
+    // feature stay byte-identical to ones written by an older version.
+    {
+        sepaOnlineTransferImpl task;
+        const QString xml = writeSepaTaskToXml(task);
+        QVERIFY(!xml.contains(QLatin1String("transferType")));
+        QVERIFY(!xml.contains(QLatin1String("executionDate")));
+    }
+
+    // An instant task carries only transferType (no date).
+    {
+        sepaOnlineTransferImpl task;
+        task.setTransferType(sepaOnlineTransfer::TransferType::Instant);
+        const QString xml = writeSepaTaskToXml(task);
+        QVERIFY(xml.contains(QLatin1String("transferType=\"1\"")));
+        QVERIFY(!xml.contains(QLatin1String("executionDate")));
+    }
+
+    // A dated task carries both attributes.
+    {
+        sepaOnlineTransferImpl task;
+        task.setTransferType(sepaOnlineTransfer::TransferType::Dated);
+        task.setExecutionDate(QDate(2026, 7, 1));
+        const QString xml = writeSepaTaskToXml(task);
+        QVERIFY(xml.contains(QLatin1String("transferType=\"2\"")));
+        QVERIFY(xml.contains(QLatin1String("executionDate=\"2026-07-01\"")));
+
+        // The copy constructor (used by clone()) must preserve both fields, else
+        // clone() would silently lose them.
+        const sepaOnlineTransferImpl copy(task);
+        QVERIFY(copy.transferType() == sepaOnlineTransfer::TransferType::Dated);
+        QCOMPARE(copy.executionDate(), QDate(2026, 7, 1));
+
+        // isValid() rejects a dated transfer without an execution date.
+        sepaOnlineTransferImpl noDate;
+        noDate.setTransferType(sepaOnlineTransfer::TransferType::Dated);
+        QVERIFY(!noDate.isValid());
+    }
 }

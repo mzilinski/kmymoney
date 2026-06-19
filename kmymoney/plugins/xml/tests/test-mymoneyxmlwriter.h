@@ -35,6 +35,7 @@ protected:
 private Q_SLOTS:
     void init();
     void testWriteFileInfo();
+    void testWriteSepaTransferType();
 };
 
 #endif // MYMONEYXMLWRITER_TEST_H

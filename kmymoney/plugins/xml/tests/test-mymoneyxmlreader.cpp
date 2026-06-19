@@ -37,6 +37,7 @@
 #include "securitiesmodel.h"
 
 #include "ibanbic/ibanbic.h"
+#include "onlinetasks/sepa/sepaonlinetransfer.h"
 #include "payeeidentifier/payeeidentifiertyped.h"
 #include "tasks/credittransfer.h"
 #include "tasks/onlinetask.h"
@@ -786,6 +787,13 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
         "<beneficiary bic=\"NASSDE55\" iban=\"DE08154711081547110815\" ownerName=\"Somebody\"/>"
         "</onlineTask>"
         "</ONLINEJOB>"
+        // LH-F-20: a dated transfer carrying the new transferType/executionDate attributes
+        "<ONLINEJOB id=\"O000003\">"
+        "<onlineTask iid=\"org.kmymoney.creditTransfer.sepa\" originAccount=\"A000076\" purpose=\"Dated\" subTextKey=\"0\" "
+        "textKey=\"51\" value=\"100/10\" transferType=\"2\" executionDate=\"2026-07-01\">"
+        "<beneficiary bic=\"NASSDE55\" iban=\"DE08154711081547110815\" ownerName=\"Somebody\"/>"
+        "</onlineTask>"
+        "</ONLINEJOB>"
         "</ONLINEJOBS>");
 
     QCOMPARE(r->read(createFile(data)), true);
@@ -793,7 +801,7 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
     const auto model = MyMoneyFile::instance()->onlineJobsModel();
     const auto rows = model->rowCount();
 
-    QCOMPARE(rows, 1);
+    QCOMPARE(rows, 2);
 
     const auto onlineJob = model->itemById(QLatin1String("O000002"));
     QCOMPARE(onlineJob.id(), QLatin1String("O000002"));
@@ -810,4 +818,16 @@ void MyMoneyXmlReaderTest::testReadOnlineJobs()
     QCOMPARE(ibanBic->ownerName(), QLatin1String("Somebody"));
     QCOMPARE(ibanBic->bic(), QLatin1String("NASSDE55"));
     QCOMPARE(ibanBic->electronicIban(), QLatin1String("DE08154711081547110815"));
+
+    // LH-F-20: a job without the new attributes must decode to Standard / invalid
+    // date (back-compatibility with files written before the feature existed).
+    onlineJobTyped<sepaOnlineTransfer> legacy(onlineJob);
+    QVERIFY(legacy.constTask()->transferType() == sepaOnlineTransfer::TransferType::Standard);
+    QVERIFY(!legacy.constTask()->executionDate().isValid());
+
+    // ... while the dated job decodes both attributes.
+    const auto datedJob = model->itemById(QLatin1String("O000003"));
+    onlineJobTyped<sepaOnlineTransfer> dated(datedJob);
+    QVERIFY(dated.constTask()->transferType() == sepaOnlineTransfer::TransferType::Dated);
+    QCOMPARE(dated.constTask()->executionDate(), QDate(2026, 7, 1));
 }
