@@ -998,7 +998,9 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
         if (!values || used == 0)
             return true;
         for (int i = 0; i < used; ++i)
-            if (static_cast<int>(values[i]) == v)
+            // AqBanking encodes a single 0 as a wildcard ("all values allowed"),
+            // so a 0 anywhere in the array means no restriction.
+            if (values[i] == 0 || static_cast<int>(values[i]) == v)
                 return true;
         return false;
     };

@@ -8,13 +8,6 @@
                     "OnlineTaskIds": [
                         "org.kmymoney.creditTransfer.sepa"
                     ]
-                },
-                {
-                    "Name": "SEPA Standing Order",
-                    "Name[de]": "SEPA-Dauerauftrag",
-                    "OnlineTaskIds": [
-                        "org.kmymoney.creditTransfer.sepa.standingOrder"
-                    ]
                 }
             ],
             "Iids": [

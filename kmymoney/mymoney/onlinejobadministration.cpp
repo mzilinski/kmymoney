@@ -355,7 +355,9 @@ onlineJobAdministration::onlineJobEditOffers onlineJobAdministration::onlineJobE
         QJsonArray editorsArray = kmyMoneyObj(data).value("OnlineTask").toObject().value("Editors").toArray();
         for (const QJsonValue& entry : std::as_const(editorsArray)) {
             if (!entry.toObject().value("OnlineTaskIds").isNull()) {
-                list.append(onlineJobAdministration::onlineJobEditOffer{data.fileName(), KJsonUtils::readTranslatedString(entry.toObject(), "Name")});
+                list.append(onlineJobAdministration::onlineJobEditOffer{data.fileName(),
+                                                                        KJsonUtils::readTranslatedString(entry.toObject(), "Name"),
+                                                                        entry.toObject().value("SimpleModeOnly").toBool(false)});
             }
         }
     }

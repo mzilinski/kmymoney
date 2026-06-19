@@ -84,9 +84,15 @@ QSharedPointer<sepaStandingOrder::settings> AB_TransactionLimits_toStandingOrder
 
     const auto toList = [](const uint8_t* values, int used) {
         QList<int> result;
-        if (values)
-            for (int i = 0; i < used; ++i)
-                result.append(static_cast<int>(values[i]));
+        if (!values)
+            return result;
+        for (int i = 0; i < used; ++i) {
+            // A single 0 is AqBanking's "all values allowed" wildcard; surface it
+            // as an empty list (= no restriction) so the editor offers the full range.
+            if (values[i] == 0)
+                return QList<int>();
+            result.append(static_cast<int>(values[i]));
+        }
         return result;
     };
     settings->setAllowedCyclesMonthly(toList(AB_TransactionLimits_GetValuesCycleMonth(aqlimits), AB_TransactionLimits_GetValuesCycleMonthUsed(aqlimits)));

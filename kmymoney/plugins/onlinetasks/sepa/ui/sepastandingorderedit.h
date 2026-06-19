@@ -53,7 +53,10 @@ public:
 
     bool isValid() const final override
     {
-        return getOnlineJobTyped().isValid() && supportsStandingOrders();
+        // The engine task isValid() stays deterministic; the editor additionally
+        // requires bank support and a consistent date range (last not before
+        // first), so Send/Enqueue is gated on the conditions the user sees flagged.
+        return getOnlineJobTyped().isValid() && supportsStandingOrders() && recurrenceDatesValid();
     }
 
     bool isReadOnly() const final override
@@ -92,6 +95,8 @@ private:
 
     QSharedPointer<const sepaStandingOrder::settings> taskSettings() const;
     bool supportsStandingOrders() const;
+    //! @brief First date set and (if given) last date not before first.
+    bool recurrenceDatesValid() const;
     //! @brief (Re)fill the execution-day combo for the currently selected interval.
     void populateExecutionDayCombo();
 };

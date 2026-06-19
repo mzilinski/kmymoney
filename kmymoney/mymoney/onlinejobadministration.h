@@ -66,6 +66,8 @@ public:
     struct onlineJobEditOffer {
         QString fileName;
         QString name;
+        //! @brief Editor offered only in SimpleMode (JSON "SimpleModeOnly"); default false.
+        bool onlySimpleMode = false;
     };
     using onlineJobEditOffers = QVector<onlineJobEditOffer>;
 

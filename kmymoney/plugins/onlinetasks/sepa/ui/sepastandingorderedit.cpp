@@ -71,6 +71,10 @@ sepaStandingOrderEdit::sepaStandingOrderEdit(QWidget* parent, QVariantList args)
         ui->lastExecutionDate->setEnabled(!readOnly);
     });
 
+    // The last execution date is optional (open-ended order) — allow it to be empty.
+    ui->lastExecutionDate->setAllowEmptyDate(true);
+    ui->lastExecutionDate->setDate(QDate());
+
     ui->labelUnsupportedHint->setVisible(false);
 }
 
@@ -174,6 +178,17 @@ void sepaStandingOrderEdit::populateExecutionDayCombo()
     const int restore = ui->executionDay->findData(previous);
     if (restore != -1)
         ui->executionDay->setCurrentIndex(restore);
+
+    // Cap the cycle to the period's sensible maximum (12 months / 52 weeks), or
+    // to the bank's advertised maximum when it publishes one.
+    const QList<int> advertisedCycles = settings.isNull() ? QList<int>() : (monthly ? settings->allowedCyclesMonthly() : settings->allowedCyclesWeekly());
+    int maxCycle = monthly ? 12 : 52;
+    if (!advertisedCycles.isEmpty()) {
+        maxCycle = 0;
+        for (int c : advertisedCycles)
+            maxCycle = qMax(maxCycle, c);
+    }
+    ui->cycle->setMaximum(qMax(1, maxCycle));
 }
 
 onlineJobTyped<sepaStandingOrder> sepaStandingOrderEdit::getOnlineJobTyped() const
@@ -327,6 +342,15 @@ void sepaStandingOrderEdit::valueChanged()
     Q_EMIT validityChanged(isValid());
 }
 
+bool sepaStandingOrderEdit::recurrenceDatesValid() const
+{
+    if (!ui->firstExecutionDate->date().isValid())
+        return false;
+    if (ui->lastExecutionDate->date().isValid() && ui->lastExecutionDate->date() < ui->firstExecutionDate->date())
+        return false;
+    return true;
+}
+
 void sepaStandingOrderEdit::recurrenceChanged()
 {
     QString message;
@@ -335,7 +359,9 @@ void sepaStandingOrderEdit::recurrenceChanged()
     else if (ui->lastExecutionDate->date().isValid() && ui->lastExecutionDate->date() < ui->firstExecutionDate->date())
         message = i18n("The last execution date must not be before the first.");
 
-    if (!message.isEmpty() && (m_showAllErrors || !ui->firstExecutionDate->hasFocus()))
+    // The 'last before first' error is driven by the last-date field, so gate the
+    // message on neither date field having focus (not just the first).
+    if (!message.isEmpty() && (m_showAllErrors || (!ui->firstExecutionDate->hasFocus() && !ui->lastExecutionDate->hasFocus())))
         ui->feedbackRecurrence->setFeedback(eWidgets::ValidationFeedback::MessageType::Error, message);
     else
         ui->feedbackRecurrence->removeFeedback();

@@ -117,9 +117,6 @@
     <widget class="KLineEdit" name="sepaReference"/>
    </item>
    <item>
-    <widget class="KMyMoneyValidationFeedback" name="feedbackReference" native="true"/>
-   </item>
-   <item>
     <widget class="QLabel" name="labelPurpose">
      <property name="text">
       <string>Purpose</string>
@@ -144,9 +141,6 @@
       <bool>false</bool>
      </property>
     </widget>
-   </item>
-   <item>
-    <widget class="KMyMoneyValidationFeedback" name="feedbackPurpose" native="true"/>
    </item>
    <item>
     <widget class="QGroupBox" name="recurrenceGroup">

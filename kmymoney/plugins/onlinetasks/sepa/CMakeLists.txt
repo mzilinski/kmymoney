@@ -3,18 +3,43 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/kmymoney-sepaorders.json.cmake ${CMAK
 
 set( sepaOnlineTasks_SRCS
   ui/sepacredittransferedit.cpp
-  ui/sepastandingorderedit.cpp
   sepaonlinetasksloader.cpp
 )
 
 ki18n_wrap_ui( sepaOnlineTasks_SRCS
   ui/sepacredittransferedit.ui
-  ui/sepastandingorderedit.ui
 )
 
 kmymoney_add_plugin(konlinetasks_sepa SOURCES ${sepaOnlineTasks_SRCS})
 
 target_link_libraries(konlinetasks_sepa
+  PUBLIC
+    konlinetasks_sepa_interface
+  PRIVATE
+    KF${QT_MAJOR_VERSION}::I18n
+    KF${QT_MAJOR_VERSION}::Service
+    kmm_settings
+    kmm_utils_validators
+    KF${QT_MAJOR_VERSION}::ItemModels
+)
+
+# LH-F-21: the SEPA standing-order editor is a SEPARATE plugin so the transfer
+# form's create<IonlineJobEdit>() can unambiguously instantiate it (a single
+# KPluginFactory cannot disambiguate two IonlineJobEdit editors).
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/kmymoney-sepastandingorder.json.cmake ${CMAKE_CURRENT_BINARY_DIR}/kmymoney-sepastandingorder.json @ONLY)
+
+set( sepaStandingOrderEdit_SRCS
+  ui/sepastandingorderedit.cpp
+  sepastandingorderloader.cpp
+)
+
+ki18n_wrap_ui( sepaStandingOrderEdit_SRCS
+  ui/sepastandingorderedit.ui
+)
+
+kmymoney_add_plugin(konlinetasks_sepa_standingorder SOURCES ${sepaStandingOrderEdit_SRCS})
+
+target_link_libraries(konlinetasks_sepa_standingorder
   PUBLIC
     konlinetasks_sepa_interface
   PRIVATE

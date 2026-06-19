@@ -89,6 +89,12 @@ kOnlineTransferForm::kOnlineTransferForm(QWidget *parent)
 
 void kOnlineTransferForm::loadOnlineJobEditPlugin(const onlineJobAdministration::onlineJobEditOffer& pluginDesc)
 {
+    // LH-F-21: an editor flagged SimpleModeOnly (e.g. the SEPA standing-order
+    // editor) is offered only in SimpleMode, so a full-mode session's transfer
+    // selector stays byte-identical to upstream (no extra entry).
+    if (pluginDesc.onlySimpleMode && !MyMoneyFile::instance()->simpleMode())
+        return;
+
     try {
         std::unique_ptr<QPluginLoader> loader{new QPluginLoader(pluginDesc.fileName, this)};
         QObject* plugin = loader->instance();
