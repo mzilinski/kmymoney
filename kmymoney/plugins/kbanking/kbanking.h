@@ -36,6 +36,7 @@ class KBAccountSettings;
 #include "onlinepluginextended.h"
 #include "onlinetasks/sepa/sepaonlinetransfer.h"
 #include "onlinetasks/sepa/sepastandingorder.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
 
 /**
   * This class represents the KBanking plugin towards KMymoney.
@@ -66,6 +67,15 @@ public:
     IonlineTaskSettings::ptr settings(QString accountId, QString taskName) override;
 
     void sendOnlineJob(QList<onlineJob>& jobs) override;
+
+    /**
+     * @brief Retrieve the SEPA standing orders for @p accountId from the bank
+     * (LH-F-21 T2, HKCDB). Issues a get-standing-orders job and executes the
+     * queue; results are parsed in importAccountInfo() and stored as read-only
+     * documentary records. No-op when the account does not advertise the command.
+     * (The GET path is live-unverified — see LHF21-PLAN.md re-verification gate.)
+     */
+    void retrieveStandingOrders(const QString& accountId);
 
     void plug(KXMLGUIFactory* guiFactory) override;
     void unplug() override;
@@ -158,6 +168,24 @@ private:
 
     bool enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job);
 
+    /**
+     * @brief Account whose standing-order retrieval (Abruf) is in progress, or
+     * empty. Set by retrieveStandingOrders() so importAccountInfo() only stores
+     * (and prunes) standing orders during a deliberate Abruf — never on an
+     * ordinary statement/balance update.
+     */
+    QString standingOrderAbrufAccount() const
+    {
+        return m_standingOrderAbrufAccount;
+    }
+
+    /**
+     * @brief Upsert/prune the retrieved standing orders for @p accountId into the
+     * file's online jobs (read-only documentary records). Runs in its own
+     * MyMoneyFileTransaction. Called by KBankingExt::importAccountInfo().
+     */
+    void storeRetrievedStandingOrders(const QString& accountId, const QList<sepaStandingOrderImpl>& orders);
+
 protected Q_SLOTS:
     void slotSettings();
     void slotImport();
@@ -191,6 +219,11 @@ private:
      * AqHBCI account flag to the right account when the dialog is accepted.
      */
     QString m_accountSettingsId;
+    /**
+     * KMyMoney account id whose SEPA standing-order retrieval (Abruf) is running.
+     * @see standingOrderAbrufAccount()
+     */
+    QString m_standingOrderAbrufAccount;
     /**
      * @brief @ref onlineJob "onlineJobs" which are executed at the moment
      * Key is onlineJob->id(). This container is used during execution of jobs.

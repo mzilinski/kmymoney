@@ -1054,6 +1054,46 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
     return true;
 }
 
+void KBanking::retrieveStandingOrders(const QString& accountId)
+{
+    // LH-F-21 T2 (HKCDB). AUTHORED-BLIND / live-unverified: cannot be exercised
+    // without a TAN'd connection — see the LHF21-PLAN.md re-verification gate.
+    AB_ACCOUNT_SPEC* abAccount = aqbAccount(accountId);
+    if (!abAccount)
+        return;
+    if (AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaGetStandingOrders) == nullptr)
+        return; // account/backend does not offer retrieval — fail closed (no-op)
+
+    AB_TRANSACTION* job = AB_Transaction_new();
+    AB_Transaction_SetCommand(job, AB_Transaction_CommandSepaGetStandingOrders);
+    AB_Transaction_SetUniqueAccountId(job, AB_AccountSpec_GetUniqueId(abAccount));
+    const int rv = m_kbanking->enqueueJob(job);
+    AB_Transaction_free(job);
+    if (rv != 0) {
+        qWarning("Could not enqueue get-standing-orders job (rv=%d)", rv);
+        return;
+    }
+
+    // Flag the Abruf so importAccountInfo() upserts/prunes ONLY for this account
+    // during this dedicated run (never on an ordinary statement/balance update).
+    m_standingOrderAbrufAccount = accountId;
+    executeQueue();
+    m_standingOrderAbrufAccount.clear();
+}
+
+void KBanking::storeRetrievedStandingOrders(const QString& accountId, const QList<sepaStandingOrderImpl>& orders)
+{
+    if (accountId.isEmpty())
+        return;
+    MyMoneyFileTransaction ft;
+    try {
+        mergeRetrievedStandingOrders(MyMoneyFile::instance(), accountId, orders);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        qWarning("Could not store retrieved standing orders: %s", e.what());
+    }
+}
+
 void KBanking::startPasswordTimer()
 {
     if (d->passwordCacheTimer->isActive())
@@ -1793,6 +1833,57 @@ bool KBankingExt::importAccountInfo(AB_IMEXPORTER_CONTEXT *ctx,
     while (t) {
         _xaToStatement(ks, kacc, t);
         t = AB_Transaction_List_FindNextByType(t, AB_Transaction_TypeStatement, 0);
+    }
+
+    // LH-F-21 T2: SEPA standing orders returned by a deliberate Abruf (HKCDB).
+    // Only handled when a retrieval for THIS account is in progress, so an
+    // ordinary statement/balance import never upserts or prunes the cache. These
+    // are documentary records, NOT ledger bookings, so they do NOT go through
+    // importStatement(). AUTHORED-BLIND / live-unverified: the type tag and the
+    // populated fields depend on the bank (see LHF21-PLAN.md re-verification gate);
+    // if the strict type filter yields nothing we fall back to a per-entry type check.
+    if (!kacc.id().isEmpty() && kacc.id() == m_parent->standingOrderAbrufAccount()) {
+        QList<sepaStandingOrderImpl> retrievedOrders;
+        bool strictFilter = true;
+        const AB_TRANSACTION* so = AB_ImExporterAccountInfo_GetFirstTransaction(ai, AB_Transaction_TypeStandingOrder, 0);
+        if (!so) {
+            strictFilter = false;
+            so = AB_ImExporterAccountInfo_GetFirstTransaction(ai, 0, 0);
+        }
+        const auto toQDate = [](const GWEN_DATE* d) {
+            return d ? QDate(GWEN_Date_GetYear(d), GWEN_Date_GetMonth(d), GWEN_Date_GetDay(d)) : QDate();
+        };
+        while (so) {
+            if (strictFilter || AB_Transaction_GetType(so) == AB_Transaction_TypeStandingOrder) {
+                sepaStandingOrderImpl order;
+                order.setAction(sepaStandingOrder::Action::Retrieved);
+                order.setOriginAccount(kacc.id());
+                if (const char* fiId = AB_Transaction_GetFiId(so))
+                    order.setBankOrderId(QString::fromUtf8(fiId));
+                if (const char* purpose = AB_Transaction_GetPurpose(so))
+                    order.setPurpose(QString::fromUtf8(purpose));
+                if (const AB_VALUE* v = AB_Transaction_GetValue(so))
+                    order.setValue(AB_Value_toMyMoneyMoney(v));
+                order.setPeriod(AB_Transaction_GetPeriod(so) == AB_Transaction_PeriodWeekly ? sepaStandingOrder::Period::Weekly
+                                                                                            : sepaStandingOrder::Period::Monthly);
+                order.setCycle(static_cast<int>(AB_Transaction_GetCycle(so)));
+                order.setExecutionDay(static_cast<int>(AB_Transaction_GetExecutionDay(so)));
+                order.setFirstExecutionDate(toQDate(AB_Transaction_GetFirstDate(so)));
+                order.setLastExecutionDate(toQDate(AB_Transaction_GetLastDate(so)));
+                order.setNextExecutionDate(toQDate(AB_Transaction_GetNextDate(so)));
+                payeeIdentifiers::ibanBic beneficiary;
+                if (const char* name = AB_Transaction_GetRemoteName(so))
+                    beneficiary.setOwnerName(QString::fromUtf8(name));
+                if (const char* iban = AB_Transaction_GetRemoteIban(so))
+                    beneficiary.setIban(QString::fromUtf8(iban));
+                if (const char* bic = AB_Transaction_GetRemoteBic(so))
+                    beneficiary.setBic(QString::fromUtf8(bic));
+                order.setBeneficiary(beneficiary);
+                retrievedOrders.append(order);
+            }
+            so = strictFilter ? AB_Transaction_List_FindNextByType(so, AB_Transaction_TypeStandingOrder, 0) : AB_Transaction_List_FindNextByType(so, 0, 0);
+        }
+        m_parent->storeRetrievedStandingOrders(kacc.id(), retrievedOrders);
     }
 
     // import them

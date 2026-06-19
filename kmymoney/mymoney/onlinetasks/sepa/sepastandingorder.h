@@ -40,7 +40,14 @@ public:
         Create = 0, //!< create a new standing order (HKCDE)
         Modify = 1, //!< modify an existing one (HKCDN); requires bankOrderId + nextExecutionDate
         Delete = 2, //!< delete an existing one (HKCDL); requires bankOrderId + nextExecutionDate
+        Retrieved = 3, //!< read-only documentary record retrieved from the bank (HKCDB); never sent (LH-F-21 T2)
     };
+
+    //! @brief Whether this is a read-only record retrieved from the bank (LH-F-21 T2).
+    bool isBankSourced() const
+    {
+        return action() == Action::Retrieved;
+    }
 
     //! @brief Recurrence period; numeric values are part of the file format.
     enum class Period : unsigned short {

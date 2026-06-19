@@ -3604,9 +3604,10 @@ public:
             task->setSubTextKey(integer("subTextKey", 0));
 
             const int rawAction = integer("action", 0);
-            task->setAction(rawAction == static_cast<int>(sepaStandingOrder::Action::Modify)       ? sepaStandingOrder::Action::Modify
-                                : rawAction == static_cast<int>(sepaStandingOrder::Action::Delete) ? sepaStandingOrder::Action::Delete
-                                                                                                   : sepaStandingOrder::Action::Create);
+            task->setAction(rawAction == static_cast<int>(sepaStandingOrder::Action::Modify)          ? sepaStandingOrder::Action::Modify
+                                : rawAction == static_cast<int>(sepaStandingOrder::Action::Delete)    ? sepaStandingOrder::Action::Delete
+                                : rawAction == static_cast<int>(sepaStandingOrder::Action::Retrieved) ? sepaStandingOrder::Action::Retrieved
+                                                                                                      : sepaStandingOrder::Action::Create);
             task->setPeriod((integer("period", 0) == static_cast<int>(sepaStandingOrder::Period::Weekly)) ? sepaStandingOrder::Period::Weekly
                                                                                                           : sepaStandingOrder::Period::Monthly);
             task->setCycle(integer("cycle", 1));

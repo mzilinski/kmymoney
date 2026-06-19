@@ -8,7 +8,11 @@
 #include <QVariant>
 #include <QXmlStreamReader>
 
+#include <QHash>
+#include <QSet>
+
 #include "mymoney/mymoneyfile.h"
+#include "mymoney/onlinejob.h"
 #include "mymoneyaccount.h"
 #include "mymoneyinstitution.h"
 #include "mymoneypayee.h"
@@ -170,6 +174,8 @@ sepaStandingOrder* sepaStandingOrderImpl::createFromXml(QXmlStreamReader* reader
         task->_action = Action::Modify;
     else if (rawAction == static_cast<unsigned int>(Action::Delete))
         task->_action = Action::Delete;
+    else if (rawAction == static_cast<unsigned int>(Action::Retrieved))
+        task->_action = Action::Retrieved;
     else
         task->_action = Action::Create;
 
@@ -217,4 +223,49 @@ KMMStringSet sepaStandingOrderImpl::referencedObjects() const
 QString sepaStandingOrderImpl::jobTypeName() const
 {
     return QLatin1String("SEPA Standing Order");
+}
+
+void mergeRetrievedStandingOrders(MyMoneyFile* file, const QString& accountId, const QList<sepaStandingOrderImpl>& retrieved)
+{
+    if (file == nullptr || accountId.isEmpty())
+        return;
+
+    // Index the incoming orders by bank order id (an order without one cannot be
+    // identified for a later modify/delete, so it is not stored).
+    QHash<QString, const sepaStandingOrderImpl*> incoming;
+    for (const auto& task : retrieved) {
+        if (!task.bankOrderId().isEmpty())
+            incoming.insert(task.bankOrderId(), &task);
+    }
+
+    QSet<QString> handled;
+
+    // Update existing bank-sourced records in place, or prune the ones the bank
+    // no longer reports. Only Retrieved records for THIS account are considered;
+    // user-authored jobs and other accounts are never touched.
+    const auto existingJobs = file->onlineJobList();
+    for (const auto& job : existingJobs) {
+        if (job.taskIid() != sepaStandingOrderImpl::name())
+            continue;
+        const auto* task = dynamic_cast<const sepaStandingOrder*>(job.constTask());
+        if (task == nullptr || task->action() != sepaStandingOrder::Action::Retrieved || task->responsibleAccount() != accountId)
+            continue;
+
+        const auto it = incoming.constFind(task->bankOrderId());
+        if (it != incoming.constEnd()) {
+            onlineJob updated(new sepaStandingOrderImpl(*it.value()), job.id());
+            file->modifyOnlineJob(updated);
+            handled.insert(task->bankOrderId());
+        } else {
+            file->removeOnlineJob(job);
+        }
+    }
+
+    // Insert the newly seen orders.
+    for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it) {
+        if (handled.contains(it.key()))
+            continue;
+        onlineJob added(new sepaStandingOrderImpl(*it.value()));
+        file->addOnlineJob(added);
+    }
 }

@@ -27,6 +27,7 @@
 #include "mymoneytransaction.h"
 #include "mymoneytransactionfilter.h"
 #include "onlinejob.h"
+#include "onlinetasks/sepa/sepastandingorderimpl.h"
 #include "payeesmodel.h"
 
 #include "payeeidentifier/ibanbic/ibanbic.h"
@@ -2701,6 +2702,104 @@ void MyMoneyFileTest::testEnableSimpleModeKeepsFullModeDataIntact()
 
     m->setSimpleMode(false);
     m->setAutoBalanceMode(false);
+}
+
+static sepaStandingOrderImpl makeStandingOrder(const QString& account, const QString& fiId, int amount, sepaStandingOrder::Action action)
+{
+    sepaStandingOrderImpl t;
+    t.setAction(action);
+    t.setOriginAccount(account);
+    t.setBankOrderId(fiId);
+    t.setValue(MyMoneyMoney(amount, 1));
+    t.setPeriod(sepaStandingOrder::Period::Monthly);
+    t.setCycle(1);
+    t.setExecutionDay(1);
+    t.setFirstExecutionDate(QDate(2026, 8, 1));
+    t.setNextExecutionDate(QDate(2026, 9, 1));
+    return t;
+}
+
+void MyMoneyFileTest::testRetrievedStandingOrderMerge()
+{
+    // LH-F-21 T2: bank-retrieved standing orders are upserted by (account, fiId)
+    // and pruned when the bank stops reporting them, without disturbing
+    // user-authored jobs.
+    testAddAccounts();
+    setupBaseCurrency();
+    const QString acc = QStringLiteral("A000001");
+
+    const auto retrievedFor = [&](const QString& account) {
+        QHash<QString, MyMoneyMoney> result;
+        const auto jobs = m->onlineJobList();
+        for (const auto& job : jobs) {
+            if (job.taskIid() != sepaStandingOrderImpl::name())
+                continue;
+            const auto* task = dynamic_cast<const sepaStandingOrder*>(job.constTask());
+            if (task && task->action() == sepaStandingOrder::Action::Retrieved && task->responsibleAccount() == account)
+                result.insert(task->bankOrderId(), task->value());
+        }
+        return result;
+    };
+    const auto hasUserCreateJob = [&]() {
+        const auto jobs = m->onlineJobList();
+        for (const auto& job : jobs) {
+            if (job.taskIid() != sepaStandingOrderImpl::name())
+                continue;
+            const auto* task = dynamic_cast<const sepaStandingOrder*>(job.constTask());
+            if (task && task->action() == sepaStandingOrder::Action::Create && task->bankOrderId() == QLatin1String("USER"))
+                return true;
+        }
+        return false;
+    };
+
+    // a user-authored (non-Retrieved) job that must survive every merge
+    MyMoneyFileTransaction ft;
+    try {
+        onlineJob userJob(new sepaStandingOrderImpl(makeStandingOrder(acc, QStringLiteral("USER"), 999, sepaStandingOrder::Action::Create)));
+        m->addOnlineJob(userJob);
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+
+    // Pass 1: the bank reports orders A and B.
+    ft.restart();
+    try {
+        mergeRetrievedStandingOrders(m,
+                                     acc,
+                                     {makeStandingOrder(acc, QStringLiteral("A"), 100, sepaStandingOrder::Action::Retrieved),
+                                      makeStandingOrder(acc, QStringLiteral("B"), 200, sepaStandingOrder::Action::Retrieved)});
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    {
+        const auto orders = retrievedFor(acc);
+        QCOMPARE(orders.size(), 2);
+        QCOMPARE(orders.value(QStringLiteral("A")), MyMoneyMoney(100, 1));
+        QCOMPARE(orders.value(QStringLiteral("B")), MyMoneyMoney(200, 1));
+        QVERIFY(hasUserCreateJob());
+    }
+
+    // Pass 2: A is updated, B vanished, C is new.
+    ft.restart();
+    try {
+        mergeRetrievedStandingOrders(m,
+                                     acc,
+                                     {makeStandingOrder(acc, QStringLiteral("A"), 150, sepaStandingOrder::Action::Retrieved),
+                                      makeStandingOrder(acc, QStringLiteral("C"), 300, sepaStandingOrder::Action::Retrieved)});
+        ft.commit();
+    } catch (const MyMoneyException& e) {
+        unexpectedException(e);
+    }
+    {
+        const auto orders = retrievedFor(acc);
+        QCOMPARE(orders.size(), 2);
+        QCOMPARE(orders.value(QStringLiteral("A")), MyMoneyMoney(150, 1)); // upserted
+        QVERIFY(!orders.contains(QStringLiteral("B"))); // pruned
+        QCOMPARE(orders.value(QStringLiteral("C")), MyMoneyMoney(300, 1)); // inserted
+        QVERIFY(hasUserCreateJob()); // user job untouched
+    }
 }
 
 void MyMoneyFileTest::testModifyStdAccount()

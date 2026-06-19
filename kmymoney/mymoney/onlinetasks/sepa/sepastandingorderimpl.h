@@ -197,4 +197,19 @@ private:
     unsigned short int _subTextKey;
 };
 
+class MyMoneyFile;
+
+/**
+ * @brief Merge bank-retrieved standing orders into the file's online jobs (LH-F-21 T2).
+ *
+ * Upserts each task in @p retrieved (which must carry Action::Retrieved + a
+ * bankOrderId) as a read-only documentary online job, keyed by
+ * (responsibleAccount, bankOrderId), and PRUNES the existing bank-sourced
+ * records for @p accountId whose bankOrderId is no longer present (deleted at
+ * the bank). User-authored jobs and other accounts are never touched. Pure
+ * over the file's online-job model — call only after a *successful* retrieval
+ * (a failed Abruf must not prune), inside a MyMoneyFileTransaction.
+ */
+KMM_MYMONEY_EXPORT void mergeRetrievedStandingOrders(MyMoneyFile* file, const QString& accountId, const QList<sepaStandingOrderImpl>& retrieved);
+
 #endif // SEPASTANDINGORDERIMPL_H

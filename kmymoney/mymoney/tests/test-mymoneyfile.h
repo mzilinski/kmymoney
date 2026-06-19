@@ -82,6 +82,7 @@ private Q_SLOTS:
     void testDeriveOpeningDateDisabled();
     void testModeSwitchReversibility();
     void testEnableSimpleModeKeepsFullModeDataIntact();
+    void testRetrievedStandingOrderMerge();
     void testAddPrice();
     void testRemovePrice();
     void testGetPrice();
