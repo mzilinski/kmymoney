@@ -778,9 +778,13 @@ QStringList KBanking::availableJobs(QString accountId) const
         list.append(sepaOnlineTransfer::name());
     }
 
-    // sepa standing order (LH-F-21): offered only when the account advertises the
-    // create-standing-order command (HKCDE), so the editor appears only where usable.
-    if (AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateStandingOrder)) {
+    // sepa standing order (LH-F-21): a SimpleMode affordance, offered only when
+    // SimpleMode is on AND the account advertises the create-standing-order
+    // command (HKCDE). Gating on simpleMode() keeps a pure full-mode session's
+    // transfer selector byte-identical to upstream (no extra task type). (The
+    // per-account job list is cached until the file changes, so toggling
+    // SimpleMode mid-session takes effect after the file is reopened.)
+    if (MyMoneyFile::instance()->simpleMode() && AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateStandingOrder)) {
         list.append(sepaStandingOrder::name());
     }
 

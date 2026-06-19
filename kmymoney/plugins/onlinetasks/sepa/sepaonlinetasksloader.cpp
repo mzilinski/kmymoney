@@ -11,9 +11,11 @@
 #include "onlinetasks/sepa/sepaonlinetransferimpl.h"
 #include "onlinetasks/sepa/sepastandingorderimpl.h"
 #include "ui/sepacredittransferedit.h"
+#include "ui/sepastandingorderedit.h"
 
 K_PLUGIN_FACTORY_WITH_JSON(konlinetasks_sepa_factory, "kmymoney-sepaorders.json", registerPlugin<sepaOnlineTasksLoader>();
-                           registerPlugin<sepaCreditTransferEdit>();)
+                           registerPlugin<sepaCreditTransferEdit>();
+                           registerPlugin<sepaStandingOrderEdit>();)
 
 sepaOnlineTasksLoader::sepaOnlineTasksLoader(QObject* parent, const QVariantList& options)
     : onlineTaskFactory(parent, options)

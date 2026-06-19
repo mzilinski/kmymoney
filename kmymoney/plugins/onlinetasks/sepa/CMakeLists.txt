@@ -3,11 +3,13 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/kmymoney-sepaorders.json.cmake ${CMAK
 
 set( sepaOnlineTasks_SRCS
   ui/sepacredittransferedit.cpp
+  ui/sepastandingorderedit.cpp
   sepaonlinetasksloader.cpp
 )
 
 ki18n_wrap_ui( sepaOnlineTasks_SRCS
   ui/sepacredittransferedit.ui
+  ui/sepastandingorderedit.ui
 )
 
 kmymoney_add_plugin(konlinetasks_sepa SOURCES ${sepaOnlineTasks_SRCS})
