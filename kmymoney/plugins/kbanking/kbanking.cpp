@@ -727,6 +727,10 @@ void KBanking::sendOnlineJob(QList<onlineJob>& jobs)
                 onlineJobTyped<sepaOnlineTransfer> typedJob(job);
                 enqueTransaction(typedJob);
                 job = typedJob;
+            } else if (sepaStandingOrder::name() == job.task()->taskName()) {
+                onlineJobTyped<sepaStandingOrder> typedJob(job);
+                enqueStandingOrder(typedJob);
+                job = typedJob;
             } else {
                 job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error, "KBanking", "Cannot handle this request"));
                 unhandledJobs.append(job);
@@ -774,6 +778,12 @@ QStringList KBanking::availableJobs(QString accountId) const
         list.append(sepaOnlineTransfer::name());
     }
 
+    // sepa standing order (LH-F-21): offered only when the account advertises the
+    // create-standing-order command (HKCDE), so the editor appears only where usable.
+    if (AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateStandingOrder)) {
+        list.append(sepaStandingOrder::name());
+    }
+
     d->jobList[accountId] = list;
     return list;
 }
@@ -815,6 +825,15 @@ IonlineTaskSettings::ptr KBanking::settings(QString accountId, QString taskName)
         // so the capability stays disabled (fail-closed).
         const AB_TRANSACTION_LIMITS* datedLimits = AB_AccountSpec_GetTransactionLimitsForCommand(abAcc, AB_Transaction_CommandSepaCreateDatedTransfer);
         return AB_TransactionLimits_toSepaOnlineTaskSettings(limits, datedLimits).dynamicCast<IonlineTaskSettings>();
+    }
+
+    if (sepaStandingOrder::name() == taskName) {
+        // LH-F-21: standing-order capability comes from the create-command limits.
+        // Null => account/backend cannot create standing orders => editor disables.
+        const AB_TRANSACTION_LIMITS* limits = AB_AccountSpec_GetTransactionLimitsForCommand(abAcc, AB_Transaction_CommandSepaCreateStandingOrder);
+        if (limits == nullptr)
+            return IonlineTaskSettings::ptr();
+        return AB_TransactionLimits_toStandingOrderSettings(limits).dynamicCast<IonlineTaskSettings>();
     }
     return IonlineTaskSettings::ptr();
 }
@@ -924,6 +943,110 @@ bool KBanking::enqueTransaction(onlineJobTyped<sepaOnlineTransfer>& job)
     return true;
 }
 
+bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
+{
+    const QString accId = job.constTask()->responsibleAccount();
+    AB_ACCOUNT_SPEC* abAccount = aqbAccount(accId);
+    if (!abAccount) {
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Warning,
+                                           "KBanking",
+                                           i18n("<qt>The given application account <b>%1</b> has not been mapped to an online account.</qt>",
+                                                MyMoneyFile::instance()->account(accId).name())));
+        return false;
+    }
+
+    // LH-F-21 T1 ships CREATE only. Modify/Delete (HKCDN/HKCDL) need the bank
+    // order id from a prior retrieval (Abruf, T2) and are added in T3 — fail
+    // closed until then rather than send something wrong.
+    if (job.constTask()->action() != sepaStandingOrder::Action::Create) {
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                           QStringLiteral("KBanking"),
+                                           i18n("Modifying or deleting standing orders is not supported yet. The order was not sent.")));
+        return false;
+    }
+
+    const AB_TRANSACTION_LIMITS* limits = AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateStandingOrder);
+    if (limits == nullptr) {
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                           QStringLiteral("KBanking"),
+                                           i18n("Standing orders are not supported by the bank or banking backend for this account. "
+                                                "The order was not sent.")));
+        return false;
+    }
+
+    const auto task = job.constTask();
+    const bool monthly = (task->period() == sepaStandingOrder::Period::Monthly);
+
+    // Fail closed on an unsupported period or an incomplete schedule.
+    if ((monthly && AB_TransactionLimits_GetAllowMonthly(limits) == 0) || (!monthly && AB_TransactionLimits_GetAllowWeekly(limits) == 0)
+        || !task->firstExecutionDate().isValid() || task->executionDay() <= 0 || task->cycle() <= 0) {
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                           QStringLiteral("KBanking"),
+                                           i18n("The standing order's schedule is incomplete or its period is not supported by the bank. "
+                                                "The order was not sent.")));
+        return false;
+    }
+
+    // The bank accepts only specific cycle/execution-day values; sending one
+    // outside the advertised set would be rejected. An empty advertised set means
+    // no restriction is known, so we let it pass (the bank is the final backstop).
+    const auto inAdvertised = [](const uint8_t* values, int used, int v) {
+        if (!values || used == 0)
+            return true;
+        for (int i = 0; i < used; ++i)
+            if (static_cast<int>(values[i]) == v)
+                return true;
+        return false;
+    };
+    const uint8_t* cycleValues = monthly ? AB_TransactionLimits_GetValuesCycleMonth(limits) : AB_TransactionLimits_GetValuesCycleWeek(limits);
+    const int cycleUsed = monthly ? AB_TransactionLimits_GetValuesCycleMonthUsed(limits) : AB_TransactionLimits_GetValuesCycleWeekUsed(limits);
+    const uint8_t* dayValues = monthly ? AB_TransactionLimits_GetValuesExecutionDayMonth(limits) : AB_TransactionLimits_GetValuesExecutionDayWeek(limits);
+    const int dayUsed = monthly ? AB_TransactionLimits_GetValuesExecutionDayMonthUsed(limits) : AB_TransactionLimits_GetValuesExecutionDayWeekUsed(limits);
+    if (!inAdvertised(cycleValues, cycleUsed, task->cycle()) || !inAdvertised(dayValues, dayUsed, task->executionDay())) {
+        job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                           QStringLiteral("KBanking"),
+                                           i18n("The chosen interval or execution day is not accepted by the bank for this account. "
+                                                "The order was not sent.")));
+        return false;
+    }
+
+    AB_TRANSACTION* abJob = AB_Transaction_new();
+    AB_Transaction_SetCommand(abJob, AB_Transaction_CommandSepaCreateStandingOrder);
+    AB_Transaction_SetUniqueAccountId(abJob, AB_AccountSpec_GetUniqueId(abAccount));
+
+    const payeeIdentifiers::ibanBic beneficiaryAcc = task->beneficiaryTyped();
+    AB_Transaction_SetRemoteName(abJob, beneficiaryAcc.ownerName().toUtf8().constData());
+    AB_Transaction_SetRemoteIban(abJob, beneficiaryAcc.electronicIban().toUtf8().constData());
+    AB_Transaction_SetRemoteBic(abJob, beneficiaryAcc.fullStoredBic().toUtf8().constData());
+
+    AB_Transaction_SetLocalAccount(abJob, abAccount);
+    AB_Transaction_SetPurpose(abJob, task->purpose().toUtf8().constData());
+    AB_Transaction_SetEndToEndReference(abJob, task->endToEndReference().toUtf8().constData());
+    AB_Transaction_SetTextKey(abJob, task->textKey());
+    AB_Transaction_SetValue(abJob, AB_Value_fromMyMoneyMoney(task->value()));
+
+    // Recurrence block.
+    AB_Transaction_SetPeriod(abJob, monthly ? AB_Transaction_PeriodMonthly : AB_Transaction_PeriodWeekly);
+    AB_Transaction_SetCycle(abJob, task->cycle());
+    AB_Transaction_SetExecutionDay(abJob, task->executionDay());
+    {
+        const QDate firstDate = task->firstExecutionDate();
+        GWEN_DATE* gd = GWEN_Date_fromGregorian(firstDate.year(), firstDate.month(), firstDate.day());
+        AB_Transaction_SetFirstDate(abJob, gd);
+        GWEN_Date_free(gd);
+    }
+    if (task->lastExecutionDate().isValid()) {
+        const QDate lastDate = task->lastExecutionDate();
+        GWEN_DATE* gd = GWEN_Date_fromGregorian(lastDate.year(), lastDate.month(), lastDate.day());
+        AB_Transaction_SetLastDate(abJob, gd);
+        GWEN_Date_free(gd);
+    }
+
+    AB_Transaction_SetStringIdForApplication(abJob, m_kbanking->mappingId(job).toUtf8().constData());
+    qDebug() << "Enqueue standing order: " << m_kbanking->enqueueJob(abJob);
+    AB_Transaction_free(abJob);
+    return true;
+}
 
 void KBanking::startPasswordTimer()
 {

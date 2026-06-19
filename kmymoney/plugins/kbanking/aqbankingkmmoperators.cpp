@@ -10,12 +10,14 @@
 #include <aqbanking/types/account_spec.h>
 #include <aqbanking/types/value.h>
 
-#include "payeeidentifier/payeeidentifiertyped.h"
-#include "payeeidentifier/nationalaccount/nationalaccount.h"
-#include "tasksettings/credittransfersettingsbase.h"
-#include "onlinetasks/sepa/sepaonlinetransfer.h"
 #include "gwenhywfarqtoperators.h"
 #include "mymoneymoney.h"
+#include "onlinetasks/sepa/sepaonlinetransfer.h"
+#include "onlinetasks/sepa/sepastandingorder.h"
+#include "payeeidentifier/nationalaccount/nationalaccount.h"
+#include "payeeidentifier/payeeidentifiertyped.h"
+#include "tasksettings/credittransfersettingsbase.h"
+#include "tasksettings/standingordersettings.h"
 
 /**
  * @brief SEPA Charset
@@ -69,6 +71,32 @@ QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTa
     }
 
     return settings.dynamicCast<sepaOnlineTransfer::settings>();
+}
+
+QSharedPointer<sepaStandingOrder::settings> AB_TransactionLimits_toStandingOrderSettings(const AB_TRANSACTION_LIMITS* aqlimits)
+{
+    Q_ASSERT(aqlimits);
+
+    QSharedPointer<standingOrderSettings> settings(new standingOrderSettings);
+    settings->setSupported(true);
+    settings->setAllowMonthly(AB_TransactionLimits_GetAllowMonthly(aqlimits) != 0);
+    settings->setAllowWeekly(AB_TransactionLimits_GetAllowWeekly(aqlimits) != 0);
+
+    const auto toList = [](const uint8_t* values, int used) {
+        QList<int> result;
+        if (values)
+            for (int i = 0; i < used; ++i)
+                result.append(static_cast<int>(values[i]));
+        return result;
+    };
+    settings->setAllowedCyclesMonthly(toList(AB_TransactionLimits_GetValuesCycleMonth(aqlimits), AB_TransactionLimits_GetValuesCycleMonthUsed(aqlimits)));
+    settings->setAllowedCyclesWeekly(toList(AB_TransactionLimits_GetValuesCycleWeek(aqlimits), AB_TransactionLimits_GetValuesCycleWeekUsed(aqlimits)));
+    settings->setAllowedExecutionDaysMonthly(
+        toList(AB_TransactionLimits_GetValuesExecutionDayMonth(aqlimits), AB_TransactionLimits_GetValuesExecutionDayMonthUsed(aqlimits)));
+    settings->setAllowedExecutionDaysWeekly(
+        toList(AB_TransactionLimits_GetValuesExecutionDayWeek(aqlimits), AB_TransactionLimits_GetValuesExecutionDayWeekUsed(aqlimits)));
+
+    return settings.dynamicCast<sepaStandingOrder::settings>();
 }
 
 void AB_Transaction_SetRemoteAccount(AB_TRANSACTION* transaction, const payeeIdentifiers::nationalAccount& ident)

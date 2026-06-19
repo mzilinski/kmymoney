@@ -35,6 +35,7 @@ class KBAccountSettings;
 #include "mymoneykeyvaluecontainer.h"
 #include "onlinepluginextended.h"
 #include "onlinetasks/sepa/sepaonlinetransfer.h"
+#include "onlinetasks/sepa/sepastandingorder.h"
 
 /**
   * This class represents the KBanking plugin towards KMymoney.
@@ -155,6 +156,7 @@ private:
 
     bool enqueTransaction(onlineJobTyped<sepaOnlineTransfer>& job);
 
+    bool enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job);
 
 protected Q_SLOTS:
     void slotSettings();

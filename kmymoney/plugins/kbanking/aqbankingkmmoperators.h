@@ -15,6 +15,7 @@
 #include <QSharedPointer>
 
 #include "onlinetasks/sepa/sepaonlinetransfer.h"
+#include "onlinetasks/sepa/sepastandingorder.h"
 
 struct AB_ACCOUNT_SPEC;
 struct AB_TRANSACTION_LIMITS;
@@ -36,6 +37,12 @@ class nationalAccount;
  */
 QSharedPointer<sepaOnlineTransfer::settings> AB_TransactionLimits_toSepaOnlineTaskSettings(const AB_TRANSACTION_LIMITS* aqlimits,
                                                                                            const AB_TRANSACTION_LIMITS* datedLimits = nullptr);
+
+/**
+ * @brief Build standing-order capability from an account's standing-order
+ *        transaction limits (LH-F-21). Pass non-null limits only.
+ */
+QSharedPointer<sepaStandingOrder::settings> AB_TransactionLimits_toStandingOrderSettings(const AB_TRANSACTION_LIMITS* aqlimits);
 
 /**
  * @brief AB_Transaction_SetRemoteAccount

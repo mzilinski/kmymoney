@@ -9,9 +9,11 @@
 #include "kmm_mymoney_export.h"
 
 #include <QDate>
+#include <QList>
 
 #include "misc/validators.h"
 #include "onlinetasks/interfaces/tasks/credittransfer.h"
+#include "onlinetasks/interfaces/tasks/ionlinetasksettings.h"
 #include "onlinetasks/interfaces/tasks/onlinetask.h"
 #include "payeeidentifier/ibanbic/ibanbic.h"
 
@@ -110,6 +112,54 @@ public:
     virtual QString jobTypeName() const override = 0;
     virtual bool hasReferenceTo(const QString& id) const override = 0;
     virtual KMMStringSet referencedObjects() const override = 0;
+
+    /**
+     * @brief Per-account standing-order capability (LH-F-21), filled by the
+     * online-banking backend.
+     *
+     * Non-pure with safe defaults so the fallback (no backend) reports "not
+     * supported" and the editor disables itself (the LH-F-20 disabled-with-hint
+     * pattern). The allowed-value lists are empty when the bank advertises no
+     * restriction; the backend and the bank remain the authoritative validators.
+     */
+    class settings : public IonlineTaskSettings
+    {
+    public:
+        ~settings() override
+        {
+        }
+        //! @brief Whether this account/backend can create standing orders at all (HKCDE).
+        virtual bool supportsStandingOrders() const
+        {
+            return false;
+        }
+        virtual bool allowMonthly() const
+        {
+            return true;
+        }
+        virtual bool allowWeekly() const
+        {
+            return false;
+        }
+        //! @brief Allowed cycle values (empty = unknown/unrestricted).
+        virtual QList<int> allowedCyclesMonthly() const
+        {
+            return {};
+        }
+        virtual QList<int> allowedCyclesWeekly() const
+        {
+            return {};
+        }
+        //! @brief Allowed execution days (monthly: 1..31 + ultimo 97/98/99; weekly: 1..7).
+        virtual QList<int> allowedExecutionDaysMonthly() const
+        {
+            return {};
+        }
+        virtual QList<int> allowedExecutionDaysWeekly() const
+        {
+            return {};
+        }
+    };
 
 protected:
     virtual sepaStandingOrder* clone() const override = 0;
