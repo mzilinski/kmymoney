@@ -959,29 +959,67 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
         return false;
     }
 
-    // LH-F-21 T1 ships CREATE only. Modify/Delete (HKCDN/HKCDL) need the bank
-    // order id from a prior retrieval (Abruf, T2) and are added in T3 — fail
-    // closed until then rather than send something wrong.
-    if (job.constTask()->action() != sepaStandingOrder::Action::Create) {
+    const auto task = job.constTask();
+    const sepaStandingOrder::Action action = task->action();
+
+    // A retrieved (documentary) record is read-only and never sent.
+    if (action == sepaStandingOrder::Action::Retrieved) {
         job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
                                            QStringLiteral("KBanking"),
-                                           i18n("Modifying or deleting standing orders is not supported yet. The order was not sent.")));
+                                           i18n("A retrieved standing order is read-only and cannot be sent.")));
         return false;
     }
 
-    const AB_TRANSACTION_LIMITS* limits = AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, AB_Transaction_CommandSepaCreateStandingOrder);
+    // Each operation has its OWN command/limits — HKCDE support does not imply
+    // HKCDN/HKCDL. (LH-F-21 T3: the modify/delete mapping is AUTHORED-BLIND/
+    // live-unverified — see the LHF21-PLAN.md re-verification gate.)
+    AB_TRANSACTION_COMMAND abCommand = AB_Transaction_CommandSepaCreateStandingOrder;
+    if (action == sepaStandingOrder::Action::Modify)
+        abCommand = AB_Transaction_CommandSepaModifyStandingOrder;
+    else if (action == sepaStandingOrder::Action::Delete)
+        abCommand = AB_Transaction_CommandSepaDeleteStandingOrder;
+
+    const AB_TRANSACTION_LIMITS* limits = AB_AccountSpec_GetTransactionLimitsForCommand(abAccount, abCommand);
     if (limits == nullptr) {
         job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
                                            QStringLiteral("KBanking"),
-                                           i18n("Standing orders are not supported by the bank or banking backend for this account. "
-                                                "The order was not sent.")));
+                                           i18n("This standing-order operation is not supported by the bank or banking backend "
+                                                "for this account. The order was not sent.")));
         return false;
     }
 
-    const auto task = job.constTask();
-    const bool monthly = (task->period() == sepaStandingOrder::Period::Monthly);
+    // Modify/Delete need the bank's order id and the next execution date.
+    if (action == sepaStandingOrder::Action::Modify || action == sepaStandingOrder::Action::Delete) {
+        if (task->bankOrderId().isEmpty() || !task->nextExecutionDate().isValid()) {
+            job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
+                                               QStringLiteral("KBanking"),
+                                               i18n("The standing order is missing the bank's order reference. Retrieve the "
+                                                    "standing orders from the bank first. The order was not sent.")));
+            return false;
+        }
+    }
 
-    // Fail closed on an unsupported period or an incomplete schedule.
+    const auto setNextDate = [](AB_TRANSACTION* abJob, const QDate& date) {
+        GWEN_DATE* gd = GWEN_Date_fromGregorian(date.year(), date.month(), date.day());
+        AB_Transaction_SetNextDate(abJob, gd);
+        GWEN_Date_free(gd);
+    };
+
+    // Delete carries only the identification — no recurrence/value.
+    if (action == sepaStandingOrder::Action::Delete) {
+        AB_TRANSACTION* abJob = AB_Transaction_new();
+        AB_Transaction_SetCommand(abJob, abCommand);
+        AB_Transaction_SetUniqueAccountId(abJob, AB_AccountSpec_GetUniqueId(abAccount));
+        AB_Transaction_SetFiId(abJob, task->bankOrderId().toUtf8().constData());
+        setNextDate(abJob, task->nextExecutionDate());
+        AB_Transaction_SetStringIdForApplication(abJob, m_kbanking->mappingId(job).toUtf8().constData());
+        qDebug() << "Enqueue standing-order delete: " << m_kbanking->enqueueJob(abJob);
+        AB_Transaction_free(abJob);
+        return true;
+    }
+
+    // Create or Modify: validate the recurrence against the operation's limits.
+    const bool monthly = (task->period() == sepaStandingOrder::Period::Monthly);
     if ((monthly && AB_TransactionLimits_GetAllowMonthly(limits) == 0) || (!monthly && AB_TransactionLimits_GetAllowWeekly(limits) == 0)
         || !task->firstExecutionDate().isValid() || task->executionDay() <= 0 || task->cycle() <= 0) {
         job.addJobMessage(onlineJobMessage(eMyMoney::OnlineJob::MessageType::Error,
@@ -992,14 +1030,12 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
     }
 
     // The bank accepts only specific cycle/execution-day values; sending one
-    // outside the advertised set would be rejected. An empty advertised set means
-    // no restriction is known, so we let it pass (the bank is the final backstop).
+    // outside the advertised set would be rejected. An empty advertised set (or a
+    // single 0 wildcard) means no restriction is known — the bank is the backstop.
     const auto inAdvertised = [](const uint8_t* values, int used, int v) {
         if (!values || used == 0)
             return true;
         for (int i = 0; i < used; ++i)
-            // AqBanking encodes a single 0 as a wildcard ("all values allowed"),
-            // so a 0 anywhere in the array means no restriction.
             if (values[i] == 0 || static_cast<int>(values[i]) == v)
                 return true;
         return false;
@@ -1017,7 +1053,7 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
     }
 
     AB_TRANSACTION* abJob = AB_Transaction_new();
-    AB_Transaction_SetCommand(abJob, AB_Transaction_CommandSepaCreateStandingOrder);
+    AB_Transaction_SetCommand(abJob, abCommand);
     AB_Transaction_SetUniqueAccountId(abJob, AB_AccountSpec_GetUniqueId(abAccount));
 
     const payeeIdentifiers::ibanBic beneficiaryAcc = task->beneficiaryTyped();
@@ -1046,6 +1082,12 @@ bool KBanking::enqueStandingOrder(onlineJobTyped<sepaStandingOrder>& job)
         GWEN_DATE* gd = GWEN_Date_fromGregorian(lastDate.year(), lastDate.month(), lastDate.day());
         AB_Transaction_SetLastDate(abJob, gd);
         GWEN_Date_free(gd);
+    }
+
+    // Modify identifies the existing order by the bank's reference + next date.
+    if (action == sepaStandingOrder::Action::Modify) {
+        AB_Transaction_SetFiId(abJob, task->bankOrderId().toUtf8().constData());
+        setNextDate(abJob, task->nextExecutionDate());
     }
 
     AB_Transaction_SetStringIdForApplication(abJob, m_kbanking->mappingId(job).toUtf8().constData());

@@ -195,7 +195,9 @@ onlineJobTyped<sepaStandingOrder> sepaStandingOrderEdit::getOnlineJobTyped() con
 {
     onlineJobTyped<sepaStandingOrder> job(m_onlineJob);
 
-    job.task()->setAction(sepaStandingOrder::Action::Create);
+    // The action (Create for a new order, Modify for one seeded from a retrieved
+    // row) and the bank order id + next execution date are carried over from the
+    // loaded job — the editor only edits the recurrence + payment, never those.
     job.task()->setValue(ui->value->value());
     job.task()->setPurpose(ui->purpose->toPlainText());
     job.task()->setEndToEndReference(ui->sepaReference->text());
